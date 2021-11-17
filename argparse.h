@@ -974,10 +974,11 @@ namespace ARGPARSE_NAMESPACE_NAME
                     {
                         arg.m_shortName = "h";
                     }
-                    else
+                    if (!longHelpAlreadyExists)
                     {
                         arg.m_longName = "help";
                     }
+                    m_arguments.push_back(arg);
                 }
             }
 
@@ -1236,6 +1237,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             width = width < kHelpWidth ? kHelpWidth : width;
             size_t nameWidthInHelp = kHelpNameWidthPercent * width / 100;
+            width -= nameWidthInHelp;
 
 
             std::stringstream usage("usage: ");
