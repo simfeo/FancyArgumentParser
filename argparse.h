@@ -148,7 +148,8 @@ namespace ARGPARSE_NAMESPACE_NAME
     public:
 
         /// @brief Default constructor positional arguments. You can use class Setters or pass your own values to public members directly.
-        /// @param positionalName represents name for positional argument.
+        /// @param shortName represents short name for named argument which should be passed with one prefix.
+        /// @param longName represents long name for named atgument which should be passed with double prefix.
         /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
@@ -164,8 +165,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief Default function for named arguments. You can use class Setters or pass your own values to public members directly.
-        /// @param shortName represents short name for named argument which should be passed with one prefix.
-        /// @param longName represents long name for named atgument which should be passed with double prefix.
+        /// @param positionalName represents name for positional argument.
         /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
