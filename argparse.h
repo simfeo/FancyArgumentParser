@@ -1,5 +1,31 @@
+/**
+MIT License
+
+Copyright(c) 2021 simfeo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this softwareand associated documentation files(the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and /or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions :
+
+The above copyright noticeand this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
 #pragma once
 
+// define your own macro ARGPARSE_NAMESPACE_NAME
+// if you doesn't like default namespace "argparse"
 #ifndef ARGPARSE_NAMESPACE_NAME
 #define ARGPARSE_NAMESPACE_NAME argparse
 #endif
@@ -19,10 +45,8 @@
 
 namespace ARGPARSE_NAMESPACE_NAME
 {
-    namespace
+    namespace /// anonymous namespace for internal uasge
     {
-        const int kAnyArgCount = -1;
-        const int kFromOneToInfinteArgCount = -2;
         const size_t kSizeTypeEnd = static_cast<size_t>(-1);
         const size_t kHelpWidth = 80;
         const size_t kHelpNameWidthPercent = 30;
@@ -68,6 +92,9 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
     }
 
+
+    /// @brief Supported types for argument
+    /// If neede type is not in this list, then just use e_String
     enum class ArgTypeCast : int
     {
         e_String,
@@ -77,21 +104,36 @@ namespace ARGPARSE_NAMESPACE_NAME
         e_bool
     };
 
+    /// @brief constatnt to indicate arguments with vaious
+    /// count from 0 to infinite
+    const int kAnyArgCount = -1;
+    /// @brief constatnt to indicate arguments with vaious
+    /// count from 1 to infinite
+    const int kFromOneToInfinteArgCount = -2;
+
 
     class ArgumentParser;
     class ArgumentsObject;
 
+    /// @brief This class represents argument configuration
+    /// which should be passed to ArgumentParser objects instance
     class Argument
     {
-    public:
+        /// @brief Default constructor. Private!
+        /// @param positionalName represents name for positional argument.
+        /// @param shortName represents short name for named argument which should be passed with one prefix.
+        /// @param longName represents long name for named atgument which should be passed with double prefix.
+        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
+        /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
+        /// @param required Is argument required. Will fail parsing, if required argument are not present.
+        /// @param help Your own custom help string start.
         Argument(const std::string& positionalName = "",
             const std::string& shortName = "",
             const std::string& longName = "",
             const int argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
-            const std::string& help = "",
-            const std::vector<std::string> choices = {})
+            const std::string& help = "")
             : m_required(required)
             , m_nargs(argsCount)
             , m_type(argType)
@@ -100,58 +142,124 @@ namespace ARGPARSE_NAMESPACE_NAME
             , m_longName(longName)
             , m_help(help)
         {}
-        // is argument optional or required
+    public:
+
+        /// @brief Default constructor positional arguments. You can use class Setters or pass your own values to public members directly.
+        /// @param positionalName represents name for positional argument.
+        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
+        /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
+        /// @param required Is argument required. Will fail parsing, if required argument are not present.
+        /// @param help Your own custom help string start.
+        static Argument CreateNamedArgument(const std::string& shortName = "",
+            const std::string& longName = "",
+            const int argsCount = 1,
+            ArgTypeCast argType = ArgTypeCast::e_String,
+            const bool required = true,
+            const std::string& help = "")
+        {
+            return Argument("", shortName, longName, argsCount, argType, required, help);
+        }
+
+        /// @brief Default function for named arguments. You can use class Setters or pass your own values to public members directly.
+        /// @param shortName represents short name for named argument which should be passed with one prefix.
+        /// @param longName represents long name for named atgument which should be passed with double prefix.
+        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
+        /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
+        /// @param required Is argument required. Will fail parsing, if required argument are not present.
+        /// @param help Your own custom help string start.
+        static Argument CreatePositionalArgument(const std::string& positionalName = "",
+            const int argsCount = 1,
+            ArgTypeCast argType = ArgTypeCast::e_String,
+            const bool required = true,
+            const std::string& help = "")
+        {
+            return Argument(positionalName, "", "", argsCount, argType, required, help);
+        }
+
+
+        /// @brief required flag argument
+        /// If required argument is not set in comman line
+        /// then parcing will fail.
+        /// All Arguments are required by default
         bool m_required = true;
 
+        /// @brief Setter function to flag,
+        /// @param required - bool value to idnicate is argument required or not
+        /// @return reference to current argument
         Argument& SetRequired(bool required)
         {
             m_required = required;
             return *this;
         }
 
-        // argument ammount
-        // -1 ammount is any
-        // -2 ammount is from 1 to infinite
-        // 0 ammout is a for flag argument
+
+
+        /// @brief variable that indicates count of argument in input
+        /// use "kAnyArgCount" or "kFromOneToInfinteArgCount" constants
+        /// for arguments with variable count. Any other aruments count
+        /// will be passed as stict arguments count.
+        /// 0 is for flags (arguments that doesn't carry any data)
+        /// set to 1 by default.
         int m_nargs = 1;
 
+        /// @brief setter function for m_nargs with desired ammount
+        /// @param ammount int value that indicates  ammout of argument.
+        /// Coud be "kAnyArgCount" or "kFromOneToInfinteArgCount", 0 or any other positive integer.
+        /// @return reference to current argument
         Argument& SetNumberOfArguments(int ammount)
         {
             m_nargs = ammount;
             return *this;
         }
 
+
+        /// @brief Handy setter for argument count with self declarated name
+        /// @return reference to current argument
         Argument& SetAnyNumberOfArgumentsButAtleastOne()
         {
             m_nargs = kFromOneToInfinteArgCount;
             return *this;
         }
 
+        /// @brief Handy setter for argument count with self declarated name
+        /// @return reference to current argument
         Argument& SetAnyNumberOfArguments()
         {
             m_nargs = kAnyArgCount;
             return *this;
         }
 
+        /// @brief Handy setter for argument count with self declarated name
+        /// @return reference to current argument
         Argument& SetArgumentIsFlag()
         {
             m_nargs = 0;
             return *this;
         }
 
-        // types of argument
+        /// @brief Variable that hold type of argument.
+        /// string by defalut
         ArgTypeCast m_type = ArgTypeCast::e_String;
 
+
+        /// @brief Setter function for typoe of current argument
+        /// @param argType setter for type of current argument data.
+        /// Any non string types will be casted while parcing.
+        /// @return reference to current argument
         Argument& SetType(ArgTypeCast argType)
         {
             m_type = argType;
             return *this;
         }
 
-        // positional argument name
-        // positional argument starts without any prefixe
+        /// @brief name of positional argument
+        /// positional arguments name used only to acces desired argument from code
         std::string m_positionalName = "";
 
+
+        /// @brief Handy setter for positional argument
+        /// @param name name for positiona argument
+        /// @return reference to current argument
         Argument& SetPositionalName(const std::string& name)
         {
             m_positionalName = name;
@@ -362,6 +470,26 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         friend ArgumentsObject;
     };
+
+
+    Argument CreateNamedArgument(const std::string& shortName = "",
+        const std::string& longName = "",
+        const int argsCount = 1,
+        ArgTypeCast argType = ArgTypeCast::e_String,
+        const bool required = true,
+        const std::string& help = "")
+    {
+        return Argument::CreateNamedArgument(shortName, longName, argsCount, argType, required, help);
+    }
+
+    Argument CreatePositionalArgument(const std::string& positionalName = "",
+        const int argsCount = 1,
+        ArgTypeCast argType = ArgTypeCast::e_String,
+        const bool required = true,
+        const std::string& help = "")
+    {
+        return Argument::CreatePositionalArgument(positionalName, argsCount, argType, required, help);
+    }
 
     class ArgumentParsed
     {
@@ -969,15 +1097,8 @@ namespace ARGPARSE_NAMESPACE_NAME
                 longHelpAlreadyExists = foundArgObject != m_knownArgumentNamesInternal.end();
                 if (!shortHelpAlreadyExists || !longHelpAlreadyExists)
                 {
-                    Argument arg;
-                    if (!shortHelpAlreadyExists)
-                    {
-                        arg.m_shortName = "h";
-                    }
-                    if (!longHelpAlreadyExists)
-                    {
-                        arg.m_longName = "help";
-                    }
+                    Argument arg = Argument::CreateNamedArgument(shortHelpAlreadyExists ? "" : "h", longHelpAlreadyExists ? "" : "help", 0);
+                    arg.SetHelp("Show help!");
                     m_arguments.push_back(arg);
                 }
             }
@@ -1482,7 +1603,10 @@ namespace ARGPARSE_NAMESPACE_NAME
             bool addSpace = static_cast<bool>(arg.m_help.size());
 
             showDesc << arg.m_help;
-            showDesc << (addSpace ? " " : "") << "Type: " << m_enumToString[arg.m_type] << ". ";
+            if (arg.m_nargs)
+            {
+                showDesc << (addSpace ? " " : "") << "Type: " << m_enumToString[arg.m_type] << ". ";
+            }
 
             if ((!arg.m_shortName.empty() || !arg.m_longName.empty())
                 && (arg.m_choicesDouble.size() + arg.m_choicesInt.size() + arg.m_choicesLongLong.size() + arg.m_choicesString.size()))
@@ -1507,7 +1631,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 showDesc << ". ";
             }
 
-            showDesc << "Args count: ";
+            showDesc << (arg.m_nargs ? "Args count: " : "");
             switch (arg.m_nargs)
             {
             case kAnyArgCount:
@@ -1515,6 +1639,8 @@ namespace ARGPARSE_NAMESPACE_NAME
                 break;
             case kFromOneToInfinteArgCount:
                 showDesc << " at least one. ";
+                break;
+            case 0:
                 break;
             default:
                 showDesc << arg.m_nargs << " ";
