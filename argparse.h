@@ -48,7 +48,8 @@ SOFTWARE.
 /// By default is namespace name is "argparse"
 namespace ARGPARSE_NAMESPACE_NAME
 {
-    namespace /// anonymous namespace for internal usage
+    /// @brief anonymous namespace for internal usage
+    namespace 
     {
         const size_t kSizeTypeEnd = static_cast<size_t>(-1);
         const size_t kHelpWidth = 80;
