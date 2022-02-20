@@ -43,12 +43,12 @@ SOFTWARE.
 #include <any>
 #endif
 
-/// @brief namespace of argument parser constans and Classes
+/// @brief namespace of argument parser constants and Classes
 /// can be changed if ARGPARSE_NAMESPACE_NAME macro specified during compilation.
 /// By default is namespace name is "argparse"
 namespace ARGPARSE_NAMESPACE_NAME
 {
-    namespace /// anonymous namespace for internal uasge
+    namespace /// anonymous namespace for internal usage
     {
         const size_t kSizeTypeEnd = static_cast<size_t>(-1);
         const size_t kHelpWidth = 80;
@@ -97,7 +97,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
 
     /// @brief Supported types for argument
-    /// If neede type is not in this list, then just use e_String
+    /// If needed type is not in this list, then just use e_String
     enum class ArgTypeCast : int
     {
         e_String,
@@ -107,10 +107,10 @@ namespace ARGPARSE_NAMESPACE_NAME
         e_bool
     };
 
-    /// @brief constatnt to indicate arguments with vaious
+    /// @brief constant to indicate arguments with various
     /// count from 0 to infinite
     const int kAnyArgCount = -1;
-    /// @brief constatnt to indicate arguments with vaious
+    /// @brief constant to indicate arguments with various
     /// count from 1 to infinite
     const int kFromOneToInfinteArgCount = -2;
 
@@ -125,7 +125,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Default constructor. Private!
         /// @param positionalName represents name for positional argument.
         /// @param shortName represents short name for named argument which should be passed with one prefix.
-        /// @param longName represents long name for named atgument which should be passed with double prefix.
+        /// @param longName represents long name for named argument which should be passed with double prefix.
         /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
@@ -149,7 +149,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief Default constructor positional arguments. You can use class Setters or pass your own values to public members directly.
         /// @param shortName represents short name for named argument which should be passed with one prefix.
-        /// @param longName represents long name for named atgument which should be passed with double prefix.
+        /// @param longName represents long name for named argument which should be passed with double prefix.
         /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
@@ -180,13 +180,13 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief required flag argument
-        /// If required argument is not set in comman line
-        /// then parcing will fail.
+        /// If required argument is not set in command line
+        /// then parsing will fail.
         /// All Arguments are required by default
         bool m_required = true;
 
         /// @brief Setter function to flag,
-        /// @param required - bool value to idnicate is argument required or not
+        /// @param required - bool value to indicate is argument required or not
         /// @return reference to current argument
         Argument& SetRequired(bool required)
         {
@@ -196,23 +196,23 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief variable that indicates count of argument in input
         /// use "kAnyArgCount" or "kFromOneToInfinteArgCount" constants
-        /// for arguments with variable count. Any other aruments count
-        /// will be passed as stict arguments count.
+        /// for arguments with variable count. Any other arguments count
+        /// will be passed as strict arguments count.
         /// 0 is for flags (arguments that doesn't carry any data)
         /// set to 1 by default.
         int m_nargs = 1;
 
-        /// @brief setter function for m_nargs with desired ammount
-        /// @param ammount int value that indicates  ammout of argument.
-        /// Coud be "kAnyArgCount" or "kFromOneToInfinteArgCount", 0 or any other positive integer.
+        /// @brief setter function for m_nargs with desired amount
+        /// @param amount int value that indicates  amount of argument.
+        /// Could be "kAnyArgCount" or "kFromOneToInfinteArgCount", 0 or any other positive integer.
         /// @return reference to current argument
-        Argument& SetNumberOfArguments(int ammount)
+        Argument& SetNumberOfArguments(int amount)
         {
-            m_nargs = ammount;
+            m_nargs = amount;
             return *this;
         }
 
-        /// @brief Handy setter for argument count with self declarated name
+        /// @brief Handy setter for argument count with self declared name
         /// @return reference to current argument
         Argument& SetAnyNumberOfArgumentsButAtleastOne()
         {
@@ -220,7 +220,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             return *this;
         }
 
-        /// @brief Handy setter for argument count with self declarated name
+        /// @brief Handy setter for argument count with self declared name
         /// @return reference to current argument
         Argument& SetAnyNumberOfArguments()
         {
@@ -228,7 +228,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             return *this;
         }
 
-        /// @brief Handy setter for argument count with self declarated name
+        /// @brief Handy setter for argument which is actually a flag (e.g. has no any parameters)
         /// @return reference to current argument
         Argument& SetArgumentIsFlag()
         {
@@ -237,12 +237,12 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief Variable that hold type of argument.
-        /// string by defalut
+        /// string by default
         ArgTypeCast m_type = ArgTypeCast::e_String;
 
-        /// @brief Setter function for typoe of current argument
+        /// @brief Setter function for type of current argument
         /// @param argType setter for type of current argument data.
-        /// Any non string types will be casted while parcing.
+        /// Any non string types will be casted while parsing.
         /// @return reference to current argument
         Argument& SetType(ArgTypeCast argType)
         {
@@ -251,7 +251,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief name of positional argument
-        /// positional arguments name used only to acces desired argument from code
+        /// positional arguments name used only to access desired argument from code
         std::string m_positionalName = "";
 
         /// @brief Handy setter for positional argument
@@ -270,7 +270,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief Handy setter for short named argument. 
         /// Should been used with ordinary prefix in command line.
-        /// Can be autogenerated if possible when m_allowAbbrev in ArgymentParsed set to true.
+        /// Can be auto-generated if possible when m_allowAbbrev in ArgymentParsed set to true.
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
         Argument& SetShortName(const std::string& name)
@@ -281,13 +281,13 @@ namespace ARGPARSE_NAMESPACE_NAME
         
         /// @brief arguments long name.
         /// for non positional arguments only
-        /// agument long name start with double prefix
+        /// argument long name start with double prefix
         std::string m_longName = "";
 
         /// @brief Handy setter for long named argument. 
         /// Should been used with double prefix in command line.
-        /// Can be used for autogeneration of short name if it possible forpossible 
-        /// and m_allowAbbrev in ArgymentParsed set to true.
+        /// Can be used for auto-generation of short name if it possible
+        /// and m_allowAbbrev in ArgymentParsed is "true".
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
         Argument& SetLongName(const std::string& name)
@@ -300,8 +300,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// Will be part of generated help
         std::string m_help = "";
 
-        /// @brief Handy setter for additiona help
-        /// @param help String with additional help. Empty by deafult.
+        /// @brief Handy setter for additional help
+        /// @param help string with additional help. Empty by default.
         /// @return reference to current argument
         Argument& SetHelp(const std::string& help)
         {
@@ -518,7 +518,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
 
-        /// @brief Getter to indicate does argument has any dafult value
+        /// @brief Getter to indicate does argument has any default value
         /// @return reference to current argument
         bool HasDefault() const
         {
@@ -538,13 +538,13 @@ namespace ARGPARSE_NAMESPACE_NAME
 
     /// @brief Helper function to create named argument
     /// @param shortName Short name if needed. Will be used with single prefix.
-    /// Short name could be autogenerated if possible when m_allowAbbrev in ArgymentParsed set to true)
+    /// Short name could be auto-generated if possible when m_allowAbbrev in ArgymentParsed set to true)
     /// @param longName Full name of argument
     /// @param argsCount Count of arguments
     /// (use kFromOneToInfinteArgCount or kAnyArgCount for various arguments count)
     /// @param argType e_String, e_int, e_longlong, e_double, e_bool
     /// @param required Marker if argument should be passed or ignored if missed.
-    /// @param help Initial part of help for current argument in case of autogenerated help.
+    /// @param help Initial part of help for current argument in case of auto-generated help.
     /// @return instance of Argument
     Argument CreateNamedArgument(const std::string& shortName = "",
         const std::string& longName = "",
@@ -562,7 +562,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// (use kFromOneToInfinteArgCount or kAnyArgCount for various arguments count)
     /// @param argType e_String, e_int, e_longlong, e_double, e_bool
     /// @param required Marker if argument should be passed or ignored if missed.
-    /// @param help Initial part of help for current argument in case of autogenerated help.
+    /// @param help Initial part of help for current argument in case of auto-generated help.
     /// @return instance of Argument
     Argument CreatePositionalArgument(const std::string& positionalName = "",
         const int argsCount = 1,
@@ -577,8 +577,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     class ArgumentParsed
     {
     public:
-        /// @brief Does argument exists. Neede to check in case
-        /// when argument is not required
+        /// @brief Does argument exists. Needed to check in case when argument is not required
         /// @return bool value
         bool GetArgumentExists()
         {
@@ -743,27 +742,34 @@ namespace ARGPARSE_NAMESPACE_NAME
     protected:
 
         ArgumentParsed() {}
-
+        /// @brief flag about is argument exists
         bool        m_exists{ false };
+        /// @brief type of argument
         ArgTypeCast m_type{ ArgTypeCast::e_String };
+        /// @brief count of arguments properties
         size_t      m_count{ 0 };
 
+        /// @brief container of parsed bool arguments
         std::vector<bool>        m_bool = {};
+        /// @brief container of parse int arguments
         std::vector<int>         m_int = {};
+        /// @brief container of parsed long long arguments
         std::vector<long long>   m_longLong = {};
+        /// @brief container of parsed double arguments
         std::vector<double>      m_double = {};
+        /// @brief container of parsed string arguments
         std::vector<std::string> m_string = {};
 
         friend ArgumentsObject;
     };
 
     /// @brief Cass that carries result of real parsing
-    /// Indicates if parsing is sucessfull and allows to get ArgumentParsed object in that case.
+    /// Indicates if parsing is successful and allows to get ArgumentParsed object in that case.
     /// In case of parsing failure provides error string for first error.
     class ArgumentsObject
     {
     public:
-        /// @brief Indicates if parsing was successfull
+        /// @brief Indicates if parsing was successful
         /// @return bool value
         bool IsArgValid() const
         {
@@ -785,8 +791,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief Getter function to get ArgumentParsed object 
-        /// @param name Name of argument object, could be short name, long name or positional name
-        /// @return Empty argument if argument with given name doesnt exists or real result if exists.
+        /// @param name name of argument object, could be short name, long name or positional name
+        /// @return Empty argument if argument with given name doesn't exists or real result if exists.
         ArgumentParsed GetArg(const std::string& name)
         {
             ArgumentParsed arg = ArgumentParsed();
@@ -1126,13 +1132,13 @@ namespace ARGPARSE_NAMESPACE_NAME
     {
     public:
         /// @brief Constructor for ArgumentParser
-        /// @param name Programm name which will appear in autogenerated help
+        /// @param name Program name which will appear in auto-generated help
         /// @return 
         ArgumentParser(const std::string& name) noexcept
             : m_name(name)
         {}
 
-        /// @brief Overload default description for autogenerated command line
+        /// @brief Overload default description for auto-generated command line
         /// @param description Text to display before the argument help ("" by default)
         /// @return reference to current parser
         ArgumentParser& SetDescription(const std::string& description) noexcept
@@ -1150,8 +1156,8 @@ namespace ARGPARSE_NAMESPACE_NAME
             return *this;
         }
 
-        /// @brief Settert to ignore uknown argument while parsing.
-        /// If false pasing wiil be failed if parser detected uknown argument.
+        /// @brief Setter to ignore unknown argument while parsing.
+        /// If false parsing will be failed if parser detected unknown argument.
         /// @param ignoreUnknownArgs bool value for ignore or not (false by default)
         /// @return reference to current parser
         ArgumentParser& SetIgnoreUknownArgs(bool ignoreUnknownArgs) noexcept
@@ -1173,15 +1179,15 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief This function allows to set final message after program description and before
         /// argument list description
-        /// @param epilog string of epilog. Automatically ajusting to screen size. (empty by default)
+        /// @param epilogue string of epilogue. Automatically adjusting to screen size. (empty by default)
         /// @return reference to current parser
-        ArgumentParser& SetEpilog(const std::string& epilog) noexcept
+        ArgumentParser& SetEpilogue(const std::string& epilogue) noexcept
         {
-            m_epilog = epilog;
+            m_epilogue = epilogue;
             return *this;
         }
 
-        /// @brief Programm usage examples
+        /// @brief Program usage examples
         /// @param usage the string describing the program usage. (default: generated from arguments added to parser)
         /// @return reference to current parser
         ArgumentParser& SetUsage(const std::string& usage) noexcept
@@ -1190,8 +1196,8 @@ namespace ARGPARSE_NAMESPACE_NAME
             return *this;
         }
 
-        /// @brief Function to override default prefix. Be careful when you chosing prefix.
-        /// Single prefix will be used for short names of named arguemtn. Double prefix - for long names.
+        /// @brief Function to override default prefix. Be careful when you choosing prefix.
+        /// Single prefix will be used for short names of named argument. Double prefix - for long names.
         /// Positional arguments have no any prefix
         /// @param charSym character which will be used for prefix. ('-' by default)
         /// @return 
@@ -1201,7 +1207,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             return *this;
         }
 
-        /// @brief Function to add aruments specification to command line parser
+        /// @brief Function to add arguments specification to command line parser
         /// @param arg Argument instance
         void AddArgument(const Argument& arg)
         {
@@ -1212,30 +1218,30 @@ namespace ARGPARSE_NAMESPACE_NAME
             }
             else if (!(arg.m_longName.empty() || arg.m_shortName.empty()) && !arg.m_positionalName.empty())
             {
-                throw std::runtime_error("Positional argument " + arg.m_positionalName + " decalred aside with short/long name\n"
+                throw std::runtime_error("Positional argument " + arg.m_positionalName + " declared aside with short/long name\n"
                     "Positional argument shouldn't have any short/long name.");
             }
             else if (arg.m_choicesDouble.size() + arg.m_choicesInt.size() + arg.m_choicesLongLong.size() + arg.m_choicesString.size())
             {
                 if (arg.m_type == ArgTypeCast::e_bool)
                 {
-                    throw std::runtime_error("No need to declaire choice for bool type");
+                    throw std::runtime_error("No need to declare choice for bool type");
                 }
                 else if (arg.m_type == ArgTypeCast::e_int && arg.m_choicesDouble.size() + arg.m_choicesLongLong.size() + arg.m_choicesString.size())
                 {
-                    throw std::runtime_error("Only int choices should been declaired");
+                    throw std::runtime_error("Only int choices should been declared");
                 }
                 else if (arg.m_type == ArgTypeCast::e_longlong && arg.m_choicesDouble.size() + arg.m_choicesInt.size() + arg.m_choicesString.size())
                 {
-                    throw std::runtime_error("Only long long choices should been declaired");
+                    throw std::runtime_error("Only long long choices should been declared");
                 }
                 else if (arg.m_type == ArgTypeCast::e_double && arg.m_choicesInt.size() + arg.m_choicesLongLong.size() + arg.m_choicesString.size())
                 {
-                    throw std::runtime_error("Only double choices should been declaired");
+                    throw std::runtime_error("Only double choices should been declared");
                 }
                 else if (arg.m_type == ArgTypeCast::e_String && arg.m_choicesInt.size() + arg.m_choicesLongLong.size() + arg.m_choicesDouble.size())
                 {
-                    throw std::runtime_error("Only string choices should been declaired");
+                    throw std::runtime_error("Only string choices should been declared");
                 }
             }
             _addArg(arg);
@@ -1344,7 +1350,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             {
                 if (m_positionalArgumentNames.empty())
                 {
-                    argObj.SetErrorString("Uknown positional argument:" + positionalArgs.front());
+                    argObj.SetErrorString("Unknown positional argument:" + positionalArgs.front());
                     return argObj;
                 }
                 size_t minimumRequiredPositinalCount = 0;
@@ -1476,6 +1482,10 @@ namespace ARGPARSE_NAMESPACE_NAME
             return argObj;
         }
 
+        /// @brief function which resolves unknown arguments presence
+        /// @param currentArgumentObjectIndex 
+        /// @param positionalArgsEndFlag 
+        /// @param el 
         void _uknownArgumentHit(size_t& currentArgumentObjectIndex, bool& positionalArgsEndFlag, const std::string& el)
         {
             if (m_ignoreUknownArgs)
@@ -1507,8 +1517,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief Function to get help string
-        /// @param width current terminla width (80 by default)
-        /// @param nameWidthPercent percantage of current width, for naming parameters (30 by default)
+        /// @param width current terminal width (80 by default)
+        /// @param nameWidthPercent percentage of current width, for naming parameters (30 by default)
         /// @return help string with proper new lines
         std::string GetHelp(size_t width = kHelpWidth, size_t nameWidthPercent = kHelpNameWidthPercent)
         {
@@ -1562,9 +1572,9 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
             }
 
-            if (!m_epilog.empty())
+            if (!m_epilogue.empty())
             {
-                AddAdditionalDescription(usage, m_epilog, width);
+                AddAdditionalDescription(usage, m_epilogue, width);
             }
 
             return usage.str();
@@ -1602,8 +1612,8 @@ namespace ARGPARSE_NAMESPACE_NAME
             }
         }
 
-        /// @brief Private function wich is called in case if AddArgument function
-        /// succseed without errors
+        /// @brief Private function which is called in case if AddArgument function
+        /// succeed without errors
         /// @param arg Argument object after all validations check
         void _addArg(const Argument& arg)
         {
@@ -1639,7 +1649,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else if (arg.m_required && (arg.m_nargs == 0 || arg.m_nargs == kAnyArgCount))
                 {
-                    throw std::runtime_error("Required positional argument with name '" + arg.m_positionalName + "' connot be with zero count");
+                    throw std::runtime_error("Required positional argument with name '" + arg.m_positionalName + "' cannot be with zero count");
                 }
                 else if (!arg.m_required && arg.m_nargs != 1)
                 {
@@ -1656,7 +1666,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief Private function which generates usage according to all argument of program
         /// @param arg Argument instance
-        /// @param usage out paramets, which return usage.
+        /// @param usage out parameter, which returns usage.
         void MakeUsageForName(Argument& arg, std::stringstream& usage)
         {
             if (!arg.m_required)
@@ -1744,10 +1754,10 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief Private function which generates description for every Argument instance which added to parser
         /// This function called from GetHelp functions chain in case if m_addHelp is true.
-        /// @param arg Argument instace
+        /// @param arg Argument instance
         /// @param description string stream to which add description
-        /// @param nameLen actual lenght of names column in usage. If names are longer then nameLen new line will be added befor first line of description/
-        /// nameLen is calculated accrding to terminal width and name nameWidthPercent from GetHelp input parameters
+        /// @param nameLen actual length of names column in usage. If names are longer then nameLen new line will be added before first line of description/
+        /// nameLen is calculated according to terminal width and name nameWidthPercent from GetHelp input parameters
         /// @param descLen length of description column of usage.
         void MakeDescriptionForArg(Argument& arg, std::stringstream& description, size_t nameLen, size_t descLen)
         {
@@ -1876,11 +1886,11 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
 
-        /// @brief Private function to add epilog or program description for programm help if
-        /// autogenerated help is requested.
+        /// @brief Private function to add epilogue or program description for program help if
+        /// auto-generated help is requested.
         /// @param description Current description stream
         /// @param additionalDesc Description to add
-        /// @param descLen lenth of terminal
+        /// @param descLen length of terminal
         void AddAdditionalDescription(std::stringstream& description, const std::string& additionalDesc, size_t descLen)
         {
             description << "\n";
@@ -1899,8 +1909,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
 
-        /// @brief Private function wich generates choices for Argument intance description, if argument has
-        /// any choisec
+        /// @brief Private function which generates choices for Argument instance description, if argument has
+        /// any choices
         /// @tparam T type of choices vector
         /// @param outSstream output string stream
         /// @param choices vector of available choices.
@@ -1937,18 +1947,35 @@ namespace ARGPARSE_NAMESPACE_NAME
         };
 
     private:
+        /// @brief allow generate short names for named arguments, short name not preset
         bool        m_allowAbbrev = true;
+        /// @brief generate help automatically
         bool        m_addHelp = true;
+        /// @brief fail parsing if unknown argument is passed to command line
         bool        m_ignoreUknownArgs = false;
+        /// @brief prefix for short for named arguments
         char        m_prefix = '-';
 
+        /// @brief name of program which would be occur in command line
+        /// if auto generated help is required
         std::string m_name;
+        /// @brief description of program which should be shown in help
+        /// if auto generated help is required
         std::string m_description{ "" };
-        std::string m_epilog{ "" };
+        /// @brief epilogue of program which should be placed after arguments list
+        /// if auto generated help is required
+        std::string m_epilogue{ "" };
+        /// @brief usage examples of program
+        /// if auto generated help is required
         std::string m_usage{ "" };
+        /// @brief holder of defined arguments
         std::vector<Argument> m_arguments;
+        /// @brief holder positional arguments with they position
         std::vector<PositionalNamesStruct>      m_positionalArgumentNames;
+        /// @brief map with arguments which added explicitly
         std::map<std::string, KnownNamesStruct> m_knownArgumentNames;
+        /// @brief generated map with arguments after add short names if needed and so on
+        /// actual map which will be used for parsing
         std::map<std::string, KnownNamesStruct> m_knownArgumentNamesInternal;
 
         std::map<const ArgTypeCast, const std::string> m_enumToString
