@@ -1598,17 +1598,18 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 int count = 0;
 
+                std::string firstLetter = el1.m_longName.substr(0, 1);
                 for (auto& el : m_knownArgumentNames)
                 {
-                    if (el.first.find(el1.m_longName.substr(0, 1)) != std::string::npos)
+                    if (el.first.find(firstLetter) != 0)
                     {
                         ++count;
                     }
                 }
                 if (count == 1)
                 {
-                    el1.m_shortName = el1.m_longName.substr(0, 1);
-                    m_knownArgumentNamesInternal[_pref + el1.m_longName.substr(0, 1)] = { m_knownArgumentNames[el1.m_longName].position, KnownNameType::e_Short };
+                    el1.m_shortName = firstLetter;
+                    m_knownArgumentNamesInternal[_pref + firstLetter] = { m_knownArgumentNames[el1.m_longName].position, KnownNameType::e_Short };
                 }
             }
         }
@@ -1805,12 +1806,10 @@ namespace ARGPARSE_NAMESPACE_NAME
                 showName << "," << m_prefix << m_prefix << arg.m_longName;
             }
 
-            bool addSpace = static_cast<bool>(arg.m_help.size());
-
             showDesc << arg.m_help;
             if (arg.m_nargs)
             {
-                showDesc << (addSpace ? " " : "") << "Type: " << m_enumToString[arg.m_type] << ". ";
+                showDesc << (arg.m_help.empty() ? "" : " ") << "Type: " << m_enumToString[arg.m_type] << ". ";
             }
 
             if ((!arg.m_shortName.empty() || !arg.m_longName.empty())
@@ -1853,22 +1852,24 @@ namespace ARGPARSE_NAMESPACE_NAME
             }
             description << showName.str();
             size_t currentLen = getStringStreamLength(showName);
+
+            size_t spaceFillerSize = nameLen - currentLen;
             if (currentLen >= nameLen - 1)
             {
                 description << "\n";
-            }
-            else
-            {
-                size_t spaceFillerSize = nameLen - currentLen;
-                std::string filler;
-                filler.resize(spaceFillerSize + 1);
-                memset(&filler[0], ' ', spaceFillerSize);
-                description << filler;
+                spaceFillerSize = nameLen;
             }
 
+            // generate space after names printed
+            std::string filler;
+            filler.resize(spaceFillerSize + 1);
+            memset(&filler[0], ' ', spaceFillerSize);
+            description << filler;
+
+            // generate space for new line of description
             currentLen = 0;
 
-            std::string filler;
+            filler = "";
             filler.resize(nameLen + 1);
             memset(&filler[0], ' ', nameLen);
 
