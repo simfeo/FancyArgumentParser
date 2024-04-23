@@ -680,60 +680,44 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// and vector variants of same types regarding of arguments type.
         std::any Get()
         {
-            if (m_type == ArgTypeCast::e_String)
+            switch (m_type)
             {
+            case argparse::ArgTypeCast::e_String:
                 if (m_count == 1)
                 {
                     return m_string.front();
                 }
-                else
-                {
-                    return m_string;
-                }
-            }
-            else if (m_type == ArgTypeCast::e_int)
-            {
+                return m_string;
+                break;
+            case argparse::ArgTypeCast::e_int:
                 if (m_count == 1)
                 {
                     return m_int.front();
                 }
-                else
-                {
-                    return m_int;
-                }
-            }
-            else if (m_type == ArgTypeCast::e_longlong)
-            {
+                return m_int;
+                break;
+            case argparse::ArgTypeCast::e_longlong:
                 if (m_count == 1)
                 {
                     return m_longLong.front();
                 }
-                else
-                {
-                    return m_longLong;
-                }
-            }
-            else if (m_type == ArgTypeCast::e_double)
-            {
+                return m_longLong;
+                break;
+            case argparse::ArgTypeCast::e_double:
                 if (m_count == 1)
                 {
                     return m_double.front();
                 }
-                else
-                {
-                    return m_double;
-                }
-            }
-            else if (m_type == ArgTypeCast::e_bool)
-            {
+                return m_double;
+                break;
+            case argparse::ArgTypeCast::e_bool:
+            default:
                 if (m_count == 1)
                 {
                     return m_bool.front();
                 }
-                else
-                {
-                    return m_bool;
-                }
+                return m_bool;
+                break;
             }
         }
 
@@ -876,6 +860,35 @@ namespace ARGPARSE_NAMESPACE_NAME
             if (!argObj.m_positionalName.empty())
             {
                 m_names[argObj.m_positionalName] = position;
+            }
+        }
+
+        /// @brief Function which creates holder for parsing various length arguments
+        /// @param argObj argument object from ArgumentParser::m_arguments
+        /// @param position index of argument in ArgumentParser::m_arguments
+        /// @return true if the operation succeeded; false otherwise
+        void CreateParcingStub(const Argument& argObj, const size_t position)
+        {
+            const auto argument = m_parsed.find(position);
+            if (argument == m_parsed.end())
+            {
+                ArgumentParsed arg = ArgumentParsed();
+                arg.m_exists = true;
+                arg.m_count = 0;
+                arg.m_type = argObj.m_type;
+                m_parsed.emplace(position, arg);
+                if (!argObj.m_shortName.empty())
+                {
+                    m_names[argObj.m_shortName] = position;
+                }
+                if (!argObj.m_longName.empty())
+                {
+                    m_names[argObj.m_longName] = position;
+                }
+                if (!argObj.m_positionalName.empty())
+                {
+                    m_names[argObj.m_positionalName] = position;
+                }
             }
         }
 
@@ -1099,7 +1112,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
 
-            SetErrorString("too many argument for " + name);
+            SetErrorString("too many argument for \"" + name + "\"");
 
             return false;
         }
@@ -1112,7 +1125,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
 
-            SetErrorString("cannot parse " + token + " for " + name);
+            SetErrorString("cannot parse [\"" + token + "\"] for  argument \"" + name + "\"");
 
             return false;
         }
@@ -1280,7 +1293,16 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     Argument arg = Argument::CreateNamedArgument(shortHelpAlreadyExists ? "" : "h", longHelpAlreadyExists ? "" : "help", 0);
                     arg.SetHelp("Show help!");
-                    m_arguments.push_back(arg);
+                    arg.SetRequired(false);
+                    _addArg(arg);
+                    if (!shortHelpAlreadyExists)
+                    {
+                        m_knownArgumentNamesInternal[_pref + arg.m_shortName] = { m_arguments.size()-1, KnownNameType::e_Short };
+                    }
+                    if (!longHelpAlreadyExists)
+                    {
+                        m_knownArgumentNamesInternal[_doublePref + arg.m_longName] = { m_arguments.size()-1, KnownNameType::e_Long };
+                    }
                 }
             }
 
@@ -1294,9 +1316,9 @@ namespace ARGPARSE_NAMESPACE_NAME
             size_t currentArgumentObjectIndex = kSizeTypeEnd;
             std::vector<std::string> positionalArgs;
             ArgumentsObject argObj;
-            for (auto& el : args)
+            for (size_t i =0; i < args.size(); ++i)
             {
-
+                const std::string& el = args[i];
                 const auto foundArgObject = m_knownArgumentNamesInternal.find(el);
                 if (foundArgObject != m_knownArgumentNamesInternal.end())
                 {
@@ -1310,6 +1332,10 @@ namespace ARGPARSE_NAMESPACE_NAME
                             return argObj;
                         }
                     }
+                    else
+                    {
+                        argObj.CreateParcingStub(argument, currentArgumentObjectIndex);
+                    }
 
                     positionalArgsEndFlag = true;
                     continue;
@@ -1322,7 +1348,10 @@ namespace ARGPARSE_NAMESPACE_NAME
                     }
                     else if (el.find(_pref) == 0 || el.find(_doublePref) == 0)
                     {
-                        _uknownArgumentHit(currentArgumentObjectIndex, positionalArgsEndFlag, el);
+                        if (!_uknownArgumentHit(argObj, i+1, currentArgumentObjectIndex, positionalArgsEndFlag, el))
+                        {
+                            return argObj;
+                        }
                     }
                     else
                     {
@@ -1332,7 +1361,10 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else if (el.find(_pref) == 0 || el.find(_doublePref) == 0)
                 {
-                    _uknownArgumentHit(currentArgumentObjectIndex, positionalArgsEndFlag, el);
+                    if (!_uknownArgumentHit(argObj, i+1, currentArgumentObjectIndex, positionalArgsEndFlag, el))
+                    {
+                        return argObj;
+                    }
                     continue;
                 }
 
@@ -1401,7 +1433,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 for (auto& el : m_positionalArgumentNames)
                 {
                     Argument& argument = m_arguments[el.positionInArguments];
-                    argObj.Parse(argument, el.positionInArguments, "");
+                    argObj.CreateParcingStub(argument, el.positionInArguments);
 
                     if (m_arguments[el.positionInArguments].m_required)
                     {
@@ -1410,7 +1442,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                         {
                             for (size_t i = 0; i < m_arguments[el.positionInArguments].m_nargs; ++i)
                             {
-                                if (!argObj.Parse(argument, currentArgumentObjectIndex, positionalArgs[currentTokenPosition]))
+                                if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
                                 {
                                     return argObj;
                                 }
@@ -1427,7 +1459,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                             }
                             for (size_t i = 0; i < totalTokensForRequiredNargs + addtionalArg; ++i)
                             {
-                                if (!argObj.Parse(argument, currentArgumentObjectIndex, positionalArgs[currentTokenPosition]))
+                                if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
                                 {
                                     return argObj;
                                 }
@@ -1437,7 +1469,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                     }
                     else if (optionalParsed <= howMuchOptionalArgsCanBeParsed)
                     {
-                        if (!argObj.Parse(argument, currentArgumentObjectIndex, positionalArgs[currentTokenPosition]))
+                        if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
                         {
                             return argObj;
                         }
@@ -1464,7 +1496,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                     }
                     else
                     {
-                        argObj.SetErrorString("Wrong arguments count for argument with name '" + name + "' got = " + std::to_string(parsedArg.GetArgumentCount()));
+                        argObj.SetErrorString("Wrong arguments count for argument with name \"" + name + "\" got = " + std::to_string(parsedArg.GetArgumentCount()));
                         return argObj;
                     }
                 }
@@ -1474,7 +1506,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else if (el.m_required)
                 {
-                    argObj.SetErrorString("Required argument with name '" + name + "' doesn't exists");
+                    argObj.SetErrorString("Required argument with name \"" + name + "\" doesn't exists");
                     return argObj;
                 }
             }
@@ -1484,20 +1516,24 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief function which resolves unknown arguments presence
+        /// @param argObj
+        /// @param positionInInput
         /// @param currentArgumentObjectIndex 
         /// @param positionalArgsEndFlag 
         /// @param el 
-        void _uknownArgumentHit(size_t& currentArgumentObjectIndex, bool& positionalArgsEndFlag, const std::string& el)
+        /// @return bool - true for ignoring, false for stopping parse 
+        bool _uknownArgumentHit(ArgumentsObject& argObj, const size_t positionInInput, size_t& currentArgumentObjectIndex, bool& positionalArgsEndFlag, const std::string& el)
         {
             if (m_ignoreUknownArgs)
             {
                 currentArgumentObjectIndex = kSizeTypeEnd;
                 positionalArgsEndFlag = true;
+                return true;
             }
-            else
-            {
-                throw std::runtime_error("Unknown input argument: " + el);
-            }
+            std::stringstream ss;
+            ss << "Unknown input argument: \"" << el << "\" at position " << positionInInput;
+            argObj.SetErrorString(ss.str());
+            return false;
         }
 
         /// @brief This function just converts argc and argv to vector of token
@@ -1628,7 +1664,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else
                 {
-                    throw std::runtime_error("Short name '" + arg.m_shortName + "' already exists");
+                    throw std::runtime_error("Short name \"" + arg.m_shortName + "\" already exists");
                 }
             }
             if (!arg.m_longName.empty())
@@ -1639,7 +1675,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else
                 {
-                    throw std::runtime_error("Long name '" + arg.m_longName + "' already exists");
+                    throw std::runtime_error("Long name \"" + arg.m_longName + "\" already exists");
                 }
             }
             if (!arg.m_positionalName.empty())
@@ -1651,15 +1687,15 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else if (arg.m_required && (arg.m_nargs == 0 || arg.m_nargs == kAnyArgCount))
                 {
-                    throw std::runtime_error("Required positional argument with name '" + arg.m_positionalName + "' cannot be with zero count");
+                    throw std::runtime_error("Required positional argument with name \"" + arg.m_positionalName + "\" cannot be with zero count");
                 }
                 else if (!arg.m_required && arg.m_nargs != 1)
                 {
-                    throw std::runtime_error("Non required positional argument with name '" + arg.m_positionalName + "' should be with count 1");
+                    throw std::runtime_error("Non required positional argument with name \"" + arg.m_positionalName + "\" should be with count 1");
                 }
                 else
                 {
-                    throw std::runtime_error("Positional name " + arg.m_positionalName + " already exists");
+                    throw std::runtime_error("Positional name \"" + arg.m_positionalName + "\" already exists");
                 }
             }
 
