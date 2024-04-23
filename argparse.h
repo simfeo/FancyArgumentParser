@@ -1100,7 +1100,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
 
-            SetErrorString("Value '" + token + "' is out of choices for" + name);
+            SetErrorString("Value '" + token + "' is out of choices for \"" + name + "\"");
 
             return false;
         }
@@ -1599,7 +1599,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             if (m_arguments.size() > m_positionalArgumentNames.size())
             {
-                usage << "\n\n" << "optional arguments:\n\n";
+                usage << "\n\n" << "named arguments:\n\n";
                 for (auto& el : m_arguments)
                 {
                     if (el.m_positionalName.empty())
