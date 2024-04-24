@@ -1584,7 +1584,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             if (!m_description.empty())
             {
-                AddAdditionalDescription(usage, m_description, width);
+                AddAdditionalDescription(usage, m_description, width+nameWidthInHelp);
             }
 
             if (m_positionalArgumentNames.size())
@@ -1611,7 +1611,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             if (!m_epilogue.empty())
             {
-                AddAdditionalDescription(usage, m_epilogue, width);
+                AddAdditionalDescription(usage, m_epilogue, width+nameWidthInHelp);
             }
 
             return usage.str();
