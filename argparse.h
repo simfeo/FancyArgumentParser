@@ -114,6 +114,9 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @brief constant to indicate arguments with various
     /// count from 1 to infinite
     const int kFromOneToInfinteArgCount = -2;
+    /// @brief Correctly-spelled alias for kFromOneToInfinteArgCount.
+    /// Prefer this name; the misspelled one is kept for backwards compatibility.
+    const int kFromOneToInfiniteArgCount = kFromOneToInfinteArgCount;
 
 
     class ArgumentParser;
@@ -183,7 +186,12 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief required flag argument
         /// If required argument is not set in command line
         /// then parsing will fail.
-        /// All Arguments are required by default
+        ///
+        /// IMPORTANT: ALL arguments -- named AND positional -- are REQUIRED by
+        /// default. This differs from Python's argparse, where named options are
+        /// optional by default. To make an argument optional call
+        /// SetRequired(false) (or pass required=false to the factory function).
+        /// Optional flags in particular almost always want SetRequired(false).
         bool m_required = true;
 
         /// @brief Setter function to flag,
@@ -547,7 +555,9 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @param required Marker if argument should be passed or ignored if missed.
     /// @param help Initial part of help for current argument in case of auto-generated help.
     /// @return instance of Argument
-    Argument CreateNamedArgument(const std::string& shortName = "",
+    /// @note inline: this is a free function in a header, so it must have
+    /// inline linkage to be safely included in more than one translation unit.
+    inline Argument CreateNamedArgument(const std::string& shortName = "",
         const std::string& longName = "",
         const int argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
@@ -565,7 +575,8 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @param required Marker if argument should be passed or ignored if missed.
     /// @param help Initial part of help for current argument in case of auto-generated help.
     /// @return instance of Argument
-    Argument CreatePositionalArgument(const std::string& positionalName = "",
+    /// @note inline: see CreateNamedArgument -- required for multi-TU inclusion.
+    inline Argument CreatePositionalArgument(const std::string& positionalName = "",
         const int argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
@@ -595,24 +606,30 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Get result as single bool for bool type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
         /// @return bool value of argument
+        /// @throws std::out_of_range if the argument holds no value
         bool GetAsBool() const
         {
+            ThrowIfEmpty(m_bool.empty(), "GetAsBool");
             return m_bool.front();
         }
 
         /// @brief Get result as single int for int type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
         /// @return int value of argument
+        /// @throws std::out_of_range if the argument holds no value
         int GetAsInt() const
         {
+            ThrowIfEmpty(m_int.empty(), "GetAsInt");
             return m_int.front();
         }
 
         /// @brief Get result as single long long for long long type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
         /// @return long long value of argument
+        /// @throws std::out_of_range if the argument holds no value
         long long GetAsLongLong() const
         {
+            ThrowIfEmpty(m_longLong.empty(), "GetAsLongLong");
             return m_longLong.front();
         }
 
@@ -620,56 +637,61 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Get result as single double for double type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
         /// @return double value of argument
+        /// @throws std::out_of_range if the argument holds no value
         double GetAsDouble() const
         {
+            ThrowIfEmpty(m_double.empty(), "GetAsDouble");
             return m_double.front();
         }
 
 
         /// @brief Get result as single string for string type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
-        /// @return string value of argument
-        const std::string& GetAsString() const
+        /// @return string value of argument (returned by value so it never dangles)
+        /// @throws std::out_of_range if the argument holds no value
+        std::string GetAsString() const
         {
+            ThrowIfEmpty(m_string.empty(), "GetAsString");
             return m_string.front();
         }
 
         /// @brief Get result as vector bool for bool type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
-        /// @return vector bool value of argument
-        const std::vector<bool>& GetAsVecBool() const
+        /// @return vector bool value of argument (by value: safe to store even when
+        /// called on a temporary ArgumentParsed returned by GetArg())
+        std::vector<bool> GetAsVecBool() const
         {
             return m_bool;
         }
 
         /// @brief Get result as vector int for int type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
-        /// @return vector int value of argument
-        const std::vector<int>& GetAsVecInt() const
+        /// @return vector int value of argument (by value, see GetAsVecBool)
+        std::vector<int> GetAsVecInt() const
         {
             return m_int;
         }
 
         /// @brief Get result as vector long long for long long type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
-        /// @return vector long long value of argument
-        const std::vector<long long>& GetAsVecLongLong() const
+        /// @return vector long long value of argument (by value, see GetAsVecBool)
+        std::vector<long long> GetAsVecLongLong() const
         {
             return m_longLong;
         }
 
         /// @brief Get result as vector double for double type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
-        /// @return vector double value of argument
-        const std::vector<double>& GetAsVecDouble() const
+        /// @return vector double value of argument (by value, see GetAsVecBool)
+        std::vector<double> GetAsVecDouble() const
         {
             return m_double;
         }
 
         /// @brief Get result as vector string for string type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
-        /// @return vector string value of argument
-        const std::vector<std::string>& GetAsVecString() const
+        /// @return vector string value of argument (by value, see GetAsVecBool)
+        std::vector<std::string> GetAsVecString() const
         {
             return m_string;
         }
@@ -727,6 +749,19 @@ namespace ARGPARSE_NAMESPACE_NAME
     protected:
 
         ArgumentParsed() {}
+
+        /// @brief Guard for the scalar getters. Turns an out-of-bounds front()
+        /// (undefined behavior) into a clear, catchable exception. Call
+        /// GetArgumentExists()/GetArgumentCount() first to avoid it.
+        static void ThrowIfEmpty(bool empty, const char* getter)
+        {
+            if (empty)
+            {
+                throw std::out_of_range(std::string("ArgumentParsed::") + getter
+                    + "() called on an argument that holds no value");
+            }
+        }
+
         /// @brief flag about is argument exists
         bool        m_exists{ false };
         /// @brief type of argument
@@ -1017,7 +1052,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                         {
                             argument->second.m_longLong.push_back(std::stoll(token));
 
-                            long long value = argument->second.m_int.back();
+                            long long value = argument->second.m_longLong.back();
 
                             if (argObj.m_choicesLongLong.size())
                             {
@@ -1178,6 +1213,15 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             m_ignoreUknownArgs = ignoreUnknownArgs;
             return *this;
+        }
+
+        /// @brief Correctly-spelled alias for SetIgnoreUknownArgs.
+        /// Prefer this name; the misspelled one is kept for backwards compatibility.
+        /// @param ignoreUnknownArgs bool value for ignore or not (false by default)
+        /// @return reference to current parser
+        ArgumentParser& SetIgnoreUnknownArgs(bool ignoreUnknownArgs) noexcept
+        {
+            return SetIgnoreUknownArgs(ignoreUnknownArgs);
         }
 
         /// @brief Add a - h / --help option to the parser
@@ -1564,21 +1608,31 @@ namespace ARGPARSE_NAMESPACE_NAME
             width -= nameWidthInHelp;
 
 
-            std::stringstream usage("usage: ");
-            usage << m_name << " ";
-            if (m_positionalArgumentNames.size())
+            // NOTE: do not initialize the stream with "usage: " -- the first
+            // insertion below would overwrite it (the put pointer starts at 0).
+            std::stringstream usage;
+            if (!m_usage.empty())
             {
-                for (auto& el : m_positionalArgumentNames)
-                {
-                    Argument& arg = m_arguments[el.positionInArguments];
-                    MakeUsageForName(arg, usage);
-                }
+                // Caller-provided usage line (SetUsage) overrides the auto-generated one.
+                usage << m_usage;
             }
-            for (auto& el : m_arguments)
+            else
             {
-                if (el.m_positionalName.empty())
+                usage << m_name << " ";
+                if (m_positionalArgumentNames.size())
                 {
-                    MakeUsageForName(el, usage);
+                    for (auto& el : m_positionalArgumentNames)
+                    {
+                        Argument& arg = m_arguments[el.positionInArguments];
+                        MakeUsageForName(arg, usage);
+                    }
+                }
+                for (auto& el : m_arguments)
+                {
+                    if (el.m_positionalName.empty())
+                    {
+                        MakeUsageForName(el, usage);
+                    }
                 }
             }
 
@@ -1614,7 +1668,37 @@ namespace ARGPARSE_NAMESPACE_NAME
                 AddAdditionalDescription(usage, m_epilogue, width+nameWidthInHelp);
             }
 
-            return usage.str();
+            return TrimTrailingSpacesPerLine(usage.str());
+        }
+
+        /// @brief Removes trailing spaces/tabs from every line of the help text.
+        /// The column-based layout leaves padding at the end of many lines; this
+        /// keeps the rendered help clean without touching the wrapping logic.
+        /// @param text help text possibly containing trailing whitespace
+        /// @return text with per-line trailing whitespace removed
+        static std::string TrimTrailingSpacesPerLine(const std::string& text)
+        {
+            std::string result;
+            result.reserve(text.size());
+            size_t lineStart = 0;
+            while (lineStart <= text.size())
+            {
+                size_t nl = text.find('\n', lineStart);
+                size_t lineEnd = (nl == std::string::npos) ? text.size() : nl;
+                size_t last = lineEnd;
+                while (last > lineStart && (text[last - 1] == ' ' || text[last - 1] == '\t'))
+                {
+                    --last;
+                }
+                result.append(text, lineStart, last - lineStart);
+                if (nl == std::string::npos)
+                {
+                    break;
+                }
+                result.push_back('\n');
+                lineStart = nl + 1;
+            }
+            return result;
         }
 
     private:
@@ -1768,11 +1852,11 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             if (arg.m_nargs == kAnyArgCount)
             {
-                usage << " [" << showName.str() << "[" << showName.str() << " ...]] ";
+                usage << " [" << showName.str() << "[" << showName.str() << " ...]]";
             }
             else if (arg.m_nargs == kFromOneToInfinteArgCount)
             {
-                usage << " [" << showName.str() << " ...] ";
+                usage << " [" << showName.str() << " ...]";
             }
             else if (arg.m_nargs != 0)
             {
@@ -1782,12 +1866,15 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     usage << " " << showName.str();
                 }
-                usage << "] ";
+                usage << "]";
             }
             if (!arg.m_required)
             {
-                usage << "] ";
+                usage << "]";
             }
+            // Always separate tokens with exactly one trailing space. This also
+            // keeps flags (nargs == 0) from gluing onto the next token.
+            usage << " ";
         }
 
         /// @brief Private function which generates description for every Argument instance which added to parser
@@ -1839,7 +1926,8 @@ namespace ARGPARSE_NAMESPACE_NAME
             }
             else
             {
-                showName << "," << m_prefix << m_prefix << arg.m_longName;
+                // Long name only: no short name, so no leading comma.
+                showName << m_prefix << m_prefix << arg.m_longName;
             }
 
             showDesc << arg.m_help;

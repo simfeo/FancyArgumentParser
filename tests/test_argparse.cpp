@@ -305,6 +305,143 @@ static void test_custom_namespace()
     CHECK(run_custom_namespace_test());
 }
 
+// Guards multi-TU inclusion: defined in test_second_tu.cpp, which includes the
+// header in the default namespace. Linking both TUs proves the free factory
+// functions have inline linkage (no duplicate-symbol errors).
+bool run_second_tu_build_check();
+static void test_multi_translation_unit()
+{
+    CHECK(run_second_tu_build_check());
+}
+
+// Regression: long long + choices used to read the wrong (empty) vector and crash.
+static void test_longlong_choices()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("x", "xval", 1,
+        argparse::ArgTypeCast::e_longlong, true)
+        .SetChoices(std::vector<long long>{ 10, 20, 30 }));
+
+    auto ok = parser.ParseArgs(std::vector<std::string>{ "--xval", "20" });
+    CHECK(ok.IsArgValid());
+    CHECK(ok.GetArg("xval").GetAsLongLong() == 20);
+
+    auto bad = parser.ParseArgs(std::vector<std::string>{ "--xval", "25" });
+    CHECK(!bad.IsArgValid()); // 25 is out of choices
+}
+
+// Reference-returning getters now return by value, so calling them directly on
+// the temporary from GetArg(...) no longer dangles.
+static void test_getters_do_not_dangle()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreatePositionalArgument("name"));
+    parser.AddArgument(argparse::CreateNamedArgument("n", "nums",
+        argparse::kFromOneToInfinteArgCount, argparse::ArgTypeCast::e_int, false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "hello", "--nums", "1", "2" });
+    CHECK(obj.IsArgValid());
+
+    // Bind a value straight from the temporary ArgumentParsed: previously dangling.
+    std::string name = obj.GetArg("name").GetAsString();
+    CHECK(name == "hello");
+
+    std::vector<int> nums = obj.GetArg("nums").GetAsVecInt();
+    CHECK(nums.size() == 2 && nums[0] == 1 && nums[1] == 2);
+}
+
+// Scalar getters throw std::out_of_range instead of invoking UB on empty access.
+static void test_getter_throws_when_empty()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+        argparse::ArgTypeCast::e_int, false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{}); // num absent
+    auto num = obj.GetArg("num");
+    CHECK(!num.GetArgumentExists());
+
+    bool threw = false;
+    try { (void)num.GetAsInt(); }
+    catch (const std::out_of_range&) { threw = true; }
+    CHECK(threw);
+}
+
+// Correctly-spelled aliases behave like the original misspelled API.
+static void test_spelling_aliases()
+{
+    // kFromOneToInfiniteArgCount == kFromOneToInfinteArgCount
+    CHECK(argparse::kFromOneToInfiniteArgCount == argparse::kFromOneToInfinteArgCount);
+
+    auto parser = argparse::ArgumentParser("prog").SetIgnoreUnknownArgs(true);
+    parser.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+        argparse::ArgTypeCast::e_int, false));
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--num", "1", "--bogus", "2" });
+    CHECK(obj.IsArgValid());
+}
+
+// SetUsage overrides the auto-generated usage line (previously ignored).
+static void test_set_usage_override()
+{
+    auto parser = argparse::ArgumentParser("tool").SetDescription("d")
+        .SetUsage("tool [OPTIONS] FILE");
+    parser.AddArgument(argparse::CreateNamedArgument("n", "name", 1,
+        argparse::ArgTypeCast::e_String, false));
+
+    std::string help = parser.GetHelp(80);
+    CHECK(help.find("tool [OPTIONS] FILE") != std::string::npos);
+    // The auto-generated form must not leak through.
+    CHECK(help.find("tool -n,--name") == std::string::npos);
+}
+
+// A long-name-only argument renders without a stray leading comma.
+static void test_long_only_no_leading_comma()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("", "verbose", 0,
+        argparse::ArgTypeCast::e_String, false));
+
+    std::string help = parser.GetHelp(80);
+    CHECK(help.find("--verbose") != std::string::npos);
+    CHECK(help.find(",--verbose") == std::string::npos);
+}
+
+// A bool argument stores and returns the parsed value.
+static void test_bool_scalar()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("d", "debug", 1,
+        argparse::ArgTypeCast::e_bool, false));
+
+    auto on = parser.ParseArgs(std::vector<std::string>{ "--debug", "true" });
+    CHECK(on.IsArgValid());
+    CHECK(on.GetArg("debug").GetAsBool() == true);
+
+    auto off = parser.ParseArgs(std::vector<std::string>{ "--debug", "False" });
+    CHECK(off.IsArgValid());
+    CHECK(off.GetArg("debug").GetAsBool() == false);
+}
+
+// Help text no longer glues tokens together or leaves trailing spaces on lines.
+static void test_help_formatting()
+{
+    auto parser = argparse::ArgumentParser("prog").SetDescription("desc");
+    parser.AddArgument(argparse::CreateNamedArgument("v", "verbose")
+        .SetArgumentIsFlag().SetRequired(false));
+    parser.AddArgument(argparse::CreateNamedArgument("j", "jobs", 1,
+        argparse::ArgTypeCast::e_int, false));
+
+    std::string help = parser.GetHelp(80);
+
+    // No line ends with a space (i.e. no " \n" and no trailing space at the end).
+    CHECK(help.find(" \n") == std::string::npos);
+    CHECK(!(help.size() && help.back() == ' '));
+
+    // Adjacent option tokens are space-separated, not glued (e.g. "]-" or "e[").
+    CHECK(help.find("][") == std::string::npos);
+    CHECK(help.find("verbose[") == std::string::npos);
+}
+
 int main()
 {
     RUN(test_named_int_vector);
@@ -326,6 +463,15 @@ int main()
     RUN(test_ignore_unknown_args);
     RUN(test_bool_parsing);
     RUN(test_custom_namespace);
+    RUN(test_multi_translation_unit);
+    RUN(test_longlong_choices);
+    RUN(test_getters_do_not_dangle);
+    RUN(test_getter_throws_when_empty);
+    RUN(test_spelling_aliases);
+    RUN(test_set_usage_override);
+    RUN(test_long_only_no_leading_comma);
+    RUN(test_bool_scalar);
+    RUN(test_help_formatting);
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks
               << " checks passed." << std::endl;
