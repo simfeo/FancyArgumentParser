@@ -502,6 +502,55 @@ static void test_help_formatting()
     CHECK(help.find("verbose[") == std::string::npos);
 }
 
+// Keyword-style spec structs build the same argument as the positional factory.
+// Works in every standard via ordinary aggregate assignment.
+static void test_spec_struct_named_and_positional()
+{
+    auto parser = argparse::ArgumentParser("prog");
+
+    argparse::NamedArgSpec numsSpec;
+    numsSpec.longName = "nums";
+    numsSpec.nargs = argparse::kFromOneToInfiniteArgCount;
+    numsSpec.type = argparse::ArgTypeCast::e_int;
+    numsSpec.required = false;
+    parser.AddArgument(argparse::CreateNamedArgument(numsSpec));
+
+    argparse::PositionalArgSpec pathSpec;
+    pathSpec.name = "path";
+    pathSpec.required = false;
+    parser.AddArgument(argparse::CreatePositionalArgument(pathSpec));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "file.txt", "--nums", "1", "2" });
+    CHECK(obj.IsArgValid());
+    auto path = obj.GetArg("path");
+    CHECK(path.GetAsString() == "file.txt");
+    CHECK(obj.GetArg("nums").GetAsVecInt().size() == 2);
+}
+
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
+// C++20: the same spec structs enable Python-like keyword arguments via
+// designated initializers.
+static void test_designated_initializers_cpp20()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument({
+        .longName = "numbers",
+        .nargs    = argparse::kFromOneToInfiniteArgCount,
+        .type     = argparse::ArgTypeCast::e_int,
+        .required = false,
+        .help     = "some numbers"}));
+    parser.AddArgument(argparse::CreatePositionalArgument({
+        .name     = "path",
+        .required = false}));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "out.txt", "--numbers", "3", "4", "5" });
+    CHECK(obj.IsArgValid());
+    auto path = obj.GetArg("path");
+    CHECK(path.GetAsString() == "out.txt");
+    CHECK(obj.GetArg("numbers").GetAsVecInt().size() == 3);
+}
+#endif
+
 int main()
 {
     RUN(test_named_int_vector);
@@ -536,6 +585,10 @@ int main()
     RUN(test_abbrev_disabled);
     RUN(test_abbrev_exact_match_wins);
     RUN(test_help_formatting);
+    RUN(test_spec_struct_named_and_positional);
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
+    RUN(test_designated_initializers_cpp20);
+#endif
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks
               << " checks passed." << std::endl;

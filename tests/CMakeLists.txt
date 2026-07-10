@@ -10,7 +10,11 @@
 cmake_minimum_required(VERSION 3.14)
 project(FancyArgumentParserTests CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+# Defaults to C++17 but can be overridden, e.g. -DCMAKE_CXX_STANDARD=20.
+# The library supports C++11/14/17/20/23; CI exercises several of these.
+if(NOT DEFINED CMAKE_CXX_STANDARD)
+    set(CMAKE_CXX_STANDARD 17)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 enable_testing()

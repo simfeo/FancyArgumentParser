@@ -582,6 +582,57 @@ namespace ARGPARSE_NAMESPACE_NAME
         return Argument::CreatePositionalArgument(positionalName, argsCount, argType, required, help);
     }
 
+    /// @brief Aggregate description of a named argument, for keyword-style
+    /// construction. Because it is a plain aggregate, C++20 designated
+    /// initializers give a Python-like call site:
+    /// @code
+    ///   parser.AddArgument(argparse::CreateNamedArgument({
+    ///       .longName = "numbers",
+    ///       .nargs    = argparse::kFromOneToInfiniteArgCount,
+    ///       .type     = argparse::ArgTypeCast::e_int,
+    ///       .required = false,
+    ///       .help     = "some numbers"}));
+    /// @endcode
+    /// The same struct also works with ordinary aggregate init in C++11/14/17.
+    struct NamedArgSpec
+    {
+        std::string shortName = "";
+        std::string longName = "";
+        int nargs = 1;
+        ArgTypeCast type = ArgTypeCast::e_String;
+        bool required = true;
+        std::string help = "";
+    };
+
+    /// @brief Keyword-style factory for a named argument. See NamedArgSpec.
+    /// @param spec aggregate of the argument's properties
+    /// @return instance of Argument
+    inline Argument CreateNamedArgument(const NamedArgSpec& spec)
+    {
+        return Argument::CreateNamedArgument(spec.shortName, spec.longName,
+            spec.nargs, spec.type, spec.required, spec.help);
+    }
+
+    /// @brief Aggregate description of a positional argument, for keyword-style
+    /// construction with C++20 designated initializers. See NamedArgSpec.
+    struct PositionalArgSpec
+    {
+        std::string name = "";
+        int nargs = 1;
+        ArgTypeCast type = ArgTypeCast::e_String;
+        bool required = true;
+        std::string help = "";
+    };
+
+    /// @brief Keyword-style factory for a positional argument. See PositionalArgSpec.
+    /// @param spec aggregate of the argument's properties
+    /// @return instance of Argument
+    inline Argument CreatePositionalArgument(const PositionalArgSpec& spec)
+    {
+        return Argument::CreatePositionalArgument(spec.name, spec.nargs,
+            spec.type, spec.required, spec.help);
+    }
+
     /// @brief Class which represent actual parsed argument in case of successfully parsing
     class ArgumentParsed
     {
