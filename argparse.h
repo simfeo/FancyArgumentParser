@@ -1241,7 +1241,6 @@ namespace ARGPARSE_NAMESPACE_NAME
     public:
         /// @brief Constructor for ArgumentParser
         /// @param name Program name which will appear in auto-generated help
-        /// @return 
         ArgumentParser(const std::string& name) noexcept
             : m_name(name)
         {}
