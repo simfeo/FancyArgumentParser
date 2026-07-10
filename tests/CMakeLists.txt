@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 enable_testing()
 
-add_executable(test_argparse test_argparse.cpp)
+add_executable(test_argparse test_argparse.cpp test_namespace.cpp)
 
 # The single-header library sits one directory up.
 target_include_directories(test_argparse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)

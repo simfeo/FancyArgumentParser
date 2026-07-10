@@ -682,35 +682,35 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             switch (m_type)
             {
-            case argparse::ArgTypeCast::e_String:
+            case ArgTypeCast::e_String:
                 if (m_count == 1)
                 {
                     return m_string.front();
                 }
                 return m_string;
                 break;
-            case argparse::ArgTypeCast::e_int:
+            case ArgTypeCast::e_int:
                 if (m_count == 1)
                 {
                     return m_int.front();
                 }
                 return m_int;
                 break;
-            case argparse::ArgTypeCast::e_longlong:
+            case ArgTypeCast::e_longlong:
                 if (m_count == 1)
                 {
                     return m_longLong.front();
                 }
                 return m_longLong;
                 break;
-            case argparse::ArgTypeCast::e_double:
+            case ArgTypeCast::e_double:
                 if (m_count == 1)
                 {
                     return m_double.front();
                 }
                 return m_double;
                 break;
-            case argparse::ArgTypeCast::e_bool:
+            case ArgTypeCast::e_bool:
             default:
                 if (m_count == 1)
                 {
@@ -1096,7 +1096,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argObj Argument for which parsing error is generated
         /// @param token token which is not in the list
         /// @return false
-        bool InvalidateArgsOutOfChoice(const argparse::Argument& argObj, const std::string& token)
+        bool InvalidateArgsOutOfChoice(const Argument& argObj, const std::string& token)
         {
             const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
 
@@ -1108,7 +1108,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Helper function that puts error about argument has too many inputs
         /// @param argObj Argument for which parsing error is generated
         /// @return false
-        bool InvalidateArgsTooMany(const argparse::Argument& argObj)
+        bool InvalidateArgsTooMany(const Argument& argObj)
         {
             const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
 
@@ -1121,7 +1121,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argObj Argument for which parsing error is generated
         /// @param token token which cannot be parsed by argument rules
         /// @return false
-        bool InvalidateArgsCannotParse(const argparse::Argument& argObj, const std::string& token)
+        bool InvalidateArgsCannotParse(const Argument& argObj, const std::string& token)
         {
             const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
 
