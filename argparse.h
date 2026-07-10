@@ -595,7 +595,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Get result as single bool for bool type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
         /// @return bool value of argument
-        const bool GetAsBool() const
+        bool GetAsBool() const
         {
             return m_bool.front();
         }
@@ -603,7 +603,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Get result as single int for int type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
         /// @return int value of argument
-        const int GetAsInt() const
+        int GetAsInt() const
         {
             return m_int.front();
         }
@@ -611,7 +611,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Get result as single long long for long long type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
         /// @return long long value of argument
-        const long long GetAsLongLong() const
+        long long GetAsLongLong() const
         {
             return m_longLong.front();
         }
@@ -620,7 +620,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Get result as single double for double type arguments. Added for c++11 support.
         /// Starting from c++17 you can use Get()
         /// @return double value of argument
-        const double GetAsDouble() const
+        double GetAsDouble() const
         {
             return m_double.front();
         }
@@ -770,7 +770,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief I don't know when you could need this info
         /// @return size_t count of successfully parsed arguments
-        const size_t ParsedArgsCount() const
+        size_t ParsedArgsCount() const
         {
             return m_parsed.size();
         }
@@ -1440,7 +1440,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
                         if (m_arguments[el.positionInArguments].m_nargs != kFromOneToInfinteArgCount)
                         {
-                            for (size_t i = 0; i < m_arguments[el.positionInArguments].m_nargs; ++i)
+                            for (size_t i = 0; i < static_cast<size_t>(m_arguments[el.positionInArguments].m_nargs); ++i)
                             {
                                 if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
                                 {
@@ -1488,7 +1488,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
                 if (parsedArg.GetArgumentExists())
                 {
-                    if (parsedArg.GetArgumentCount() == el.m_nargs
+                    if (static_cast<int>(parsedArg.GetArgumentCount()) == el.m_nargs
                         || el.m_nargs == kAnyArgCount
                         || (el.m_nargs == kFromOneToInfinteArgCount && parsedArg.GetArgumentCount() >= 1))
                     {
@@ -1560,7 +1560,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         std::string GetHelp(size_t width = kHelpWidth, size_t nameWidthPercent = kHelpNameWidthPercent)
         {
             width = width < kHelpWidth ? kHelpWidth : width;
-            size_t nameWidthInHelp = kHelpNameWidthPercent * width / 100;
+            size_t nameWidthInHelp = nameWidthPercent * width / 100;
             width -= nameWidthInHelp;
 
 
@@ -1778,7 +1778,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             {
                 usage << " [";
                 usage << showName.str();
-                for (size_t i = 1; i < arg.m_nargs; ++i)
+                for (size_t i = 1; i < static_cast<size_t>(arg.m_nargs); ++i)
                 {
                     usage << " " << showName.str();
                 }
