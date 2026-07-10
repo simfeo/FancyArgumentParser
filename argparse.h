@@ -113,10 +113,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     const int kAnyArgCount = -1;
     /// @brief constant to indicate arguments with various
     /// count from 1 to infinite
-    const int kFromOneToInfinteArgCount = -2;
-    /// @brief Correctly-spelled alias for kFromOneToInfinteArgCount.
-    /// Prefer this name; the misspelled one is kept for backwards compatibility.
-    const int kFromOneToInfiniteArgCount = kFromOneToInfinteArgCount;
+    const int kFromOneToInfiniteArgCount = -2;
 
 
     class ArgumentParser;
@@ -130,7 +127,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param positionalName represents name for positional argument.
         /// @param shortName represents short name for named argument which should be passed with one prefix.
         /// @param longName represents long name for named argument which should be passed with double prefix.
-        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
+        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfiniteArgCount" for non strict count or any int constant.
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
@@ -154,7 +151,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Default constructor positional arguments. You can use class Setters or pass your own values to public members directly.
         /// @param shortName represents short name for named argument which should be passed with one prefix.
         /// @param longName represents long name for named argument which should be passed with double prefix.
-        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
+        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfiniteArgCount" for non strict count or any int constant.
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
@@ -170,7 +167,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief Default function for named arguments. You can use class Setters or pass your own values to public members directly.
         /// @param positionalName represents name for positional argument.
-        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfinteArgCount" for non strict count or any int constant.
+        /// @param argsCount integer number. You can use "kAnyArgCount", "kFromOneToInfiniteArgCount" for non strict count or any int constant.
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
@@ -204,7 +201,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief variable that indicates count of argument in input
-        /// use "kAnyArgCount" or "kFromOneToInfinteArgCount" constants
+        /// use "kAnyArgCount" or "kFromOneToInfiniteArgCount" constants
         /// for arguments with variable count. Any other arguments count
         /// will be passed as strict arguments count.
         /// 0 is for flags (arguments that doesn't carry any data)
@@ -213,7 +210,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief setter function for m_nargs with desired amount
         /// @param amount int value that indicates  amount of argument.
-        /// Could be "kAnyArgCount" or "kFromOneToInfinteArgCount", 0 or any other positive integer.
+        /// Could be "kAnyArgCount" or "kFromOneToInfiniteArgCount", 0 or any other positive integer.
         /// @return reference to current argument
         Argument& SetNumberOfArguments(int amount)
         {
@@ -223,9 +220,9 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief Handy setter for argument count with self declared name
         /// @return reference to current argument
-        Argument& SetAnyNumberOfArgumentsButAtleastOne()
+        Argument& SetAnyNumberOfArgumentsButAtLeastOne()
         {
-            m_nargs = kFromOneToInfinteArgCount;
+            m_nargs = kFromOneToInfiniteArgCount;
             return *this;
         }
 
@@ -279,7 +276,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief Handy setter for short named argument. 
         /// Should been used with ordinary prefix in command line.
-        /// Can be auto-generated if possible when m_allowAbbrev in ArgymentParsed set to true.
+        /// Can be auto-generated if possible when m_allowAbbrev in ArgumentParsed set to true.
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
         Argument& SetShortName(const std::string& name)
@@ -296,7 +293,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Handy setter for long named argument. 
         /// Should been used with double prefix in command line.
         /// Can be used for auto-generation of short name if it possible
-        /// and m_allowAbbrev in ArgymentParsed is "true".
+        /// and m_allowAbbrev in ArgumentParsed is "true".
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
         Argument& SetLongName(const std::string& name)
@@ -547,10 +544,10 @@ namespace ARGPARSE_NAMESPACE_NAME
 
     /// @brief Helper function to create named argument
     /// @param shortName Short name if needed. Will be used with single prefix.
-    /// Short name could be auto-generated if possible when m_allowAbbrev in ArgymentParsed set to true)
+    /// Short name could be auto-generated if possible when m_allowAbbrev in ArgumentParsed set to true)
     /// @param longName Full name of argument
     /// @param argsCount Count of arguments
-    /// (use kFromOneToInfinteArgCount or kAnyArgCount for various arguments count)
+    /// (use kFromOneToInfiniteArgCount or kAnyArgCount for various arguments count)
     /// @param argType e_String, e_int, e_longlong, e_double, e_bool
     /// @param required Marker if argument should be passed or ignored if missed.
     /// @param help Initial part of help for current argument in case of auto-generated help.
@@ -570,7 +567,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @brief Helper function to create positional argument
     /// @param positionalName Name of positional argument to access from code.
     /// @param argsCount Count of arguments
-    /// (use kFromOneToInfinteArgCount or kAnyArgCount for various arguments count)
+    /// (use kFromOneToInfiniteArgCount or kAnyArgCount for various arguments count)
     /// @param argType e_String, e_int, e_longlong, e_double, e_bool
     /// @param required Marker if argument should be passed or ignored if missed.
     /// @param help Initial part of help for current argument in case of auto-generated help.
@@ -783,7 +780,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         friend ArgumentsObject;
     };
 
-    /// @brief Cass that carries result of real parsing
+    /// @brief Class that carries result of real parsing
     /// Indicates if parsing is successful and allows to get ArgumentParsed object in that case.
     /// In case of parsing failure provides error string for first error.
     class ArgumentsObject
@@ -812,7 +809,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         /// @brief Getter function to get ArgumentParsed object 
         /// @param name name of argument object, could be short name, long name or positional name
-        /// @return Empty argument if argument with given name doesn't exists or real result if exists.
+        /// @return Empty argument if argument with given name does not exist or real result if exists.
         ArgumentParsed GetArg(const std::string& name)
         {
             ArgumentParsed arg = ArgumentParsed();
@@ -902,7 +899,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argObj argument object from ArgumentParser::m_arguments
         /// @param position index of argument in ArgumentParser::m_arguments
         /// @return true if the operation succeeded; false otherwise
-        void CreateParcingStub(const Argument& argObj, const size_t position)
+        void CreateParsingStub(const Argument& argObj, const size_t position)
         {
             const auto argument = m_parsed.find(position);
             if (argument == m_parsed.end())
@@ -1147,7 +1144,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
 
-            SetErrorString("too many argument for \"" + name + "\"");
+            SetErrorString("too many arguments for \"" + name + "\"");
 
             return false;
         }
@@ -1209,19 +1206,10 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// If false parsing will be failed if parser detected unknown argument.
         /// @param ignoreUnknownArgs bool value for ignore or not (false by default)
         /// @return reference to current parser
-        ArgumentParser& SetIgnoreUknownArgs(bool ignoreUnknownArgs) noexcept
-        {
-            m_ignoreUknownArgs = ignoreUnknownArgs;
-            return *this;
-        }
-
-        /// @brief Correctly-spelled alias for SetIgnoreUknownArgs.
-        /// Prefer this name; the misspelled one is kept for backwards compatibility.
-        /// @param ignoreUnknownArgs bool value for ignore or not (false by default)
-        /// @return reference to current parser
         ArgumentParser& SetIgnoreUnknownArgs(bool ignoreUnknownArgs) noexcept
         {
-            return SetIgnoreUknownArgs(ignoreUnknownArgs);
+            m_ignoreUnknownArgs = ignoreUnknownArgs;
+            return *this;
         }
 
         /// @brief Add a - h / --help option to the parser
@@ -1389,7 +1377,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                     }
                     else
                     {
-                        argObj.CreateParcingStub(argument, currentArgumentObjectIndex);
+                        argObj.CreateParsingStub(argument, currentArgumentObjectIndex);
                     }
 
                     positionalArgsEndFlag = true;
@@ -1403,7 +1391,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                     }
                     else if (el.find(_pref) == 0 || el.find(_doublePref) == 0)
                     {
-                        if (!_uknownArgumentHit(argObj, i+1, currentArgumentObjectIndex, positionalArgsEndFlag, el))
+                        if (!_unknownArgumentHit(argObj, i+1, currentArgumentObjectIndex, positionalArgsEndFlag, el))
                         {
                             return argObj;
                         }
@@ -1416,7 +1404,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else if (el.find(_pref) == 0 || el.find(_doublePref) == 0)
                 {
-                    if (!_uknownArgumentHit(argObj, i+1, currentArgumentObjectIndex, positionalArgsEndFlag, el))
+                    if (!_unknownArgumentHit(argObj, i+1, currentArgumentObjectIndex, positionalArgsEndFlag, el))
                     {
                         return argObj;
                     }
@@ -1441,32 +1429,32 @@ namespace ARGPARSE_NAMESPACE_NAME
                     argObj.SetErrorString("Unknown positional argument:" + positionalArgs.front());
                     return argObj;
                 }
-                size_t minimumRequiredPositinalCount = 0;
+                size_t minimumRequiredPositionalCount = 0;
                 size_t infiniteRequiredPositionalCount = 0;
-                size_t optionalPositinalCount = 0;
+                size_t optionalPositionalCount = 0;
 
                 for (auto& el : m_positionalArgumentNames)
                 {
                     if (m_arguments[el.positionInArguments].m_required)
                     {
-                        minimumRequiredPositinalCount += m_arguments[el.positionInArguments].m_nargs == kFromOneToInfinteArgCount ? 1 : m_arguments[el.positionInArguments].m_nargs;
-                        infiniteRequiredPositionalCount = m_arguments[el.positionInArguments].m_nargs == kFromOneToInfinteArgCount;
+                        minimumRequiredPositionalCount += m_arguments[el.positionInArguments].m_nargs == kFromOneToInfiniteArgCount ? 1 : m_arguments[el.positionInArguments].m_nargs;
+                        infiniteRequiredPositionalCount = m_arguments[el.positionInArguments].m_nargs == kFromOneToInfiniteArgCount;
                     }
                     else
                     {
-                        ++optionalPositinalCount;
+                        ++optionalPositionalCount;
                     }
                 }
-                if (minimumRequiredPositinalCount > positionalArgs.size())
+                if (minimumRequiredPositionalCount > positionalArgs.size())
                 {
-                    argObj.SetErrorString("Too few positional arguments: required " + std::to_string(positionalArgs.size()) + " got " + std::to_string(minimumRequiredPositinalCount));
+                    argObj.SetErrorString("Too few positional arguments: required " + std::to_string(positionalArgs.size()) + " got " + std::to_string(minimumRequiredPositionalCount));
                     return argObj;
                 }
 
                 size_t totalTokensForRequiredNargs = 1;
                 size_t additionalTokensForFirstRequiredNarg = 0;
-                size_t howMuchOptionalArgsCanBeParsed = positionalArgs.size() - minimumRequiredPositinalCount;
-                if (howMuchOptionalArgsCanBeParsed > optionalPositinalCount)
+                size_t howMuchOptionalArgsCanBeParsed = positionalArgs.size() - minimumRequiredPositionalCount;
+                if (howMuchOptionalArgsCanBeParsed > optionalPositionalCount)
                 {
                     if (infiniteRequiredPositionalCount == 0)
                     {
@@ -1475,10 +1463,10 @@ namespace ARGPARSE_NAMESPACE_NAME
                     }
                     else
                     {
-                        totalTokensForRequiredNargs = (howMuchOptionalArgsCanBeParsed - optionalPositinalCount) / infiniteRequiredPositionalCount;
-                        additionalTokensForFirstRequiredNarg = (howMuchOptionalArgsCanBeParsed - optionalPositinalCount) % infiniteRequiredPositionalCount;
+                        totalTokensForRequiredNargs = (howMuchOptionalArgsCanBeParsed - optionalPositionalCount) / infiniteRequiredPositionalCount;
+                        additionalTokensForFirstRequiredNarg = (howMuchOptionalArgsCanBeParsed - optionalPositionalCount) % infiniteRequiredPositionalCount;
                     }
-                    howMuchOptionalArgsCanBeParsed = optionalPositinalCount;
+                    howMuchOptionalArgsCanBeParsed = optionalPositionalCount;
                 }
 
 
@@ -1488,12 +1476,12 @@ namespace ARGPARSE_NAMESPACE_NAME
                 for (auto& el : m_positionalArgumentNames)
                 {
                     Argument& argument = m_arguments[el.positionInArguments];
-                    argObj.CreateParcingStub(argument, el.positionInArguments);
+                    argObj.CreateParsingStub(argument, el.positionInArguments);
 
                     if (m_arguments[el.positionInArguments].m_required)
                     {
 
-                        if (m_arguments[el.positionInArguments].m_nargs != kFromOneToInfinteArgCount)
+                        if (m_arguments[el.positionInArguments].m_nargs != kFromOneToInfiniteArgCount)
                         {
                             for (size_t i = 0; i < static_cast<size_t>(m_arguments[el.positionInArguments].m_nargs); ++i)
                             {
@@ -1545,7 +1533,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     if (static_cast<int>(parsedArg.GetArgumentCount()) == el.m_nargs
                         || el.m_nargs == kAnyArgCount
-                        || (el.m_nargs == kFromOneToInfinteArgCount && parsedArg.GetArgumentCount() >= 1))
+                        || (el.m_nargs == kFromOneToInfiniteArgCount && parsedArg.GetArgumentCount() >= 1))
                     {
                         continue;
                     }
@@ -1561,7 +1549,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else if (el.m_required)
                 {
-                    argObj.SetErrorString("Required argument with name \"" + name + "\" doesn't exists");
+                    argObj.SetErrorString("Required argument with name \"" + name + "\" does not exist");
                     return argObj;
                 }
             }
@@ -1577,9 +1565,9 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param positionalArgsEndFlag 
         /// @param el 
         /// @return bool - true for ignoring, false for stopping parse 
-        bool _uknownArgumentHit(ArgumentsObject& argObj, const size_t positionInInput, size_t& currentArgumentObjectIndex, bool& positionalArgsEndFlag, const std::string& el)
+        bool _unknownArgumentHit(ArgumentsObject& argObj, const size_t positionInInput, size_t& currentArgumentObjectIndex, bool& positionalArgsEndFlag, const std::string& el)
         {
-            if (m_ignoreUknownArgs)
+            if (m_ignoreUnknownArgs)
             {
                 currentArgumentObjectIndex = kSizeTypeEnd;
                 positionalArgsEndFlag = true;
@@ -1874,7 +1862,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             {
                 usage << " [" << showName.str() << "[" << showName.str() << " ...]]";
             }
-            else if (arg.m_nargs == kFromOneToInfinteArgCount)
+            else if (arg.m_nargs == kFromOneToInfiniteArgCount)
             {
                 usage << " [" << showName.str() << " ...]";
             }
@@ -1985,7 +1973,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             case kAnyArgCount:
                 showDesc << "any. ";
                 break;
-            case kFromOneToInfinteArgCount:
+            case kFromOneToInfiniteArgCount:
                 showDesc << " at least one. ";
                 break;
             case 0:
@@ -2005,17 +1993,13 @@ namespace ARGPARSE_NAMESPACE_NAME
             }
 
             // generate space after names printed
-            std::string filler;
-            filler.resize(spaceFillerSize + 1);
-            memset(&filler[0], ' ', spaceFillerSize);
+            std::string filler(spaceFillerSize, ' ');
             description << filler;
 
             // generate space for new line of description
             currentLen = 0;
 
-            filler = "";
-            filler.resize(nameLen + 1);
-            memset(&filler[0], ' ', nameLen);
+            filler = std::string(nameLen, ' ');
 
             for (std::string s; showDesc >> s; )
             {
@@ -2098,7 +2082,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief generate help automatically
         bool        m_addHelp = true;
         /// @brief fail parsing if unknown argument is passed to command line
-        bool        m_ignoreUknownArgs = false;
+        bool        m_ignoreUnknownArgs = false;
         /// @brief prefix for short for named arguments
         char        m_prefix = '-';
 

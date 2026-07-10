@@ -43,7 +43,7 @@ static void test_named_int_vector()
     auto parser = argparse::ArgumentParser("prog");
     parser.AddArgument(argparse::CreateNamedArgument()
         .SetLongName("numbers")
-        .SetAnyNumberOfArgumentsButAtleastOne()
+        .SetAnyNumberOfArgumentsButAtLeastOne()
         .SetType(argparse::ArgTypeCast::e_int));
 
     auto obj = parser.ParseArgs(std::vector<std::string>{ "--numbers", "1", "2", "3" });
@@ -62,7 +62,7 @@ static void test_short_name_alias()
 {
     auto parser = argparse::ArgumentParser("prog");
     parser.AddArgument(argparse::CreateNamedArgument("n", "numbers",
-        argparse::kFromOneToInfinteArgCount, argparse::ArgTypeCast::e_int));
+        argparse::kFromOneToInfiniteArgCount, argparse::ArgTypeCast::e_int));
 
     auto obj = parser.ParseArgs(std::vector<std::string>{ "-n", "42" });
     CHECK(obj.IsArgValid());
@@ -267,10 +267,10 @@ static void test_custom_prefix()
     CHECK(obj.GetArg("num").GetAsInt() == 5);
 }
 
-// Unknown options are tolerated when SetIgnoreUknownArgs(true).
+// Unknown options are tolerated when SetIgnoreUnknownArgs(true).
 static void test_ignore_unknown_args()
 {
-    auto parser = argparse::ArgumentParser("prog").SetIgnoreUknownArgs(true);
+    auto parser = argparse::ArgumentParser("prog").SetIgnoreUnknownArgs(true);
     parser.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
         argparse::ArgTypeCast::e_int, false));
 
@@ -284,7 +284,7 @@ static void test_bool_parsing()
 {
     auto parser = argparse::ArgumentParser("prog");
     parser.AddArgument(argparse::CreateNamedArgument("b", "bits",
-        argparse::kFromOneToInfinteArgCount, argparse::ArgTypeCast::e_bool, false));
+        argparse::kFromOneToInfiniteArgCount, argparse::ArgTypeCast::e_bool, false));
 
     auto ok = parser.ParseArgs(std::vector<std::string>{ "--bits", "true", "False", "TRUE" });
     CHECK(ok.IsArgValid());
@@ -337,7 +337,7 @@ static void test_getters_do_not_dangle()
     auto parser = argparse::ArgumentParser("prog");
     parser.AddArgument(argparse::CreatePositionalArgument("name"));
     parser.AddArgument(argparse::CreateNamedArgument("n", "nums",
-        argparse::kFromOneToInfinteArgCount, argparse::ArgTypeCast::e_int, false));
+        argparse::kFromOneToInfiniteArgCount, argparse::ArgTypeCast::e_int, false));
 
     auto obj = parser.ParseArgs(std::vector<std::string>{ "hello", "--nums", "1", "2" });
     CHECK(obj.IsArgValid());
@@ -367,17 +367,21 @@ static void test_getter_throws_when_empty()
     CHECK(threw);
 }
 
-// Correctly-spelled aliases behave like the original misspelled API.
-static void test_spelling_aliases()
+// The correctly-spelled kFromOneToInfiniteArgCount constant means "one or more".
+static void test_from_one_to_infinite_constant()
 {
-    // kFromOneToInfiniteArgCount == kFromOneToInfinteArgCount
-    CHECK(argparse::kFromOneToInfiniteArgCount == argparse::kFromOneToInfinteArgCount);
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("n", "nums",
+        argparse::kFromOneToInfiniteArgCount, argparse::ArgTypeCast::e_int, false));
 
-    auto parser = argparse::ArgumentParser("prog").SetIgnoreUnknownArgs(true);
-    parser.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
-        argparse::ArgTypeCast::e_int, false));
-    auto obj = parser.ParseArgs(std::vector<std::string>{ "--num", "1", "--bogus", "2" });
-    CHECK(obj.IsArgValid());
+    // At least one value is accepted...
+    auto many = parser.ParseArgs(std::vector<std::string>{ "--nums", "1", "2" });
+    CHECK(many.IsArgValid());
+    CHECK(many.GetArg("nums").GetAsVecInt().size() == 2);
+
+    // ...but zero values (the flag present with no args) is not enough.
+    auto none = parser.ParseArgs(std::vector<std::string>{ "--nums" });
+    CHECK(!none.IsArgValid());
 }
 
 // SetUsage overrides the auto-generated usage line (previously ignored).
@@ -523,7 +527,7 @@ int main()
     RUN(test_longlong_choices);
     RUN(test_getters_do_not_dangle);
     RUN(test_getter_throws_when_empty);
-    RUN(test_spelling_aliases);
+    RUN(test_from_one_to_infinite_constant);
     RUN(test_set_usage_override);
     RUN(test_long_only_no_leading_comma);
     RUN(test_bool_scalar);
