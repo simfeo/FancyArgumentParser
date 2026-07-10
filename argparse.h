@@ -1350,12 +1350,6 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
             }
 
-            if (m_allowAbbrev)
-            {
-                AddShortNames();
-            }
-
-
             bool positionalArgsEndFlag = false;
             size_t currentArgumentObjectIndex = kSizeTypeEnd;
             std::vector<std::string> positionalArgs;
@@ -1363,7 +1357,24 @@ namespace ARGPARSE_NAMESPACE_NAME
             for (size_t i =0; i < args.size(); ++i)
             {
                 const std::string& el = args[i];
-                const auto foundArgObject = m_knownArgumentNamesInternal.find(el);
+                auto foundArgObject = m_knownArgumentNamesInternal.find(el);
+                if (foundArgObject == m_knownArgumentNamesInternal.end() && m_allowAbbrev)
+                {
+                    // SetAllowAbbrev: accept an unambiguous prefix of a long option,
+                    // e.g. "--verb" for "--verbose".
+                    bool ambiguous = false;
+                    std::string abbrev = ResolveAbbreviation(el, _doublePref, ambiguous);
+                    if (ambiguous)
+                    {
+                        argObj.SetErrorString("Ambiguous option \"" + el
+                            + "\" matches more than one argument");
+                        return argObj;
+                    }
+                    if (!abbrev.empty())
+                    {
+                        foundArgObject = m_knownArgumentNamesInternal.find(abbrev);
+                    }
+                }
                 if (foundArgObject != m_knownArgumentNamesInternal.end())
                 {
                     currentArgumentObjectIndex = foundArgObject->second.position;
@@ -1704,34 +1715,43 @@ namespace ARGPARSE_NAMESPACE_NAME
     private:
 
 
-        /// @brief Private function which is generate short names
-        /// if m_allowAbbrev is true
-        void AddShortNames()
+        /// @brief Resolves an unambiguous long-option abbreviation (SetAllowAbbrev).
+        /// Given a token like "--verb", finds the single long option whose
+        /// prefixed name ("--verbose") begins with it.
+        /// @param token the (double-prefixed) token typed on the command line
+        /// @param doublePref the double-prefix string (e.g. "--")
+        /// @param ambiguous set to true if the token is a prefix of more than one
+        /// long option; in that case an empty string is returned.
+        /// @return the full internal key of the unique match, or "" if none/ambiguous.
+        std::string ResolveAbbreviation(
+            const std::string& token, const std::string& doublePref, bool& ambiguous)
         {
-            std::string _pref{ m_prefix };
-
-            for (auto& el1 : m_arguments)
+            ambiguous = false;
+            // Only long options (prefixed with the double prefix) can be abbreviated,
+            // and the token must be a strict, non-empty prefix.
+            if (token.size() <= doublePref.size()
+                || token.compare(0, doublePref.size(), doublePref) != 0)
             {
-                if (!el1.m_longName.empty() && (!el1.m_positionalName.empty() || !el1.m_shortName.empty()))
-                {
-                    continue;
-                }
-                int count = 0;
+                return std::string();
+            }
 
-                std::string firstLetter = el1.m_longName.substr(0, 1);
-                for (auto& el : m_knownArgumentNames)
+            std::string match;
+            for (auto it = m_knownArgumentNamesInternal.begin();
+                it != m_knownArgumentNamesInternal.end(); ++it)
+            {
+                if (it->second.argNameType == KnownNameType::e_Long
+                    && it->first.size() > token.size()
+                    && it->first.compare(0, token.size(), token) == 0)
                 {
-                    if (el.first.find(firstLetter) != 0)
+                    if (!match.empty())
                     {
-                        ++count;
+                        ambiguous = true;
+                        return std::string();
                     }
-                }
-                if (count == 1)
-                {
-                    el1.m_shortName = firstLetter;
-                    m_knownArgumentNamesInternal[_pref + firstLetter] = { m_knownArgumentNames[el1.m_longName].position, KnownNameType::e_Short };
+                    match = it->first;
                 }
             }
+            return match;
         }
 
         /// @brief Private function which is called in case if AddArgument function

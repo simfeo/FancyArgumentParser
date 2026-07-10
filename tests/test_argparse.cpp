@@ -422,6 +422,62 @@ static void test_bool_scalar()
     CHECK(off.GetArg("debug").GetAsBool() == false);
 }
 
+// SetAllowAbbrev: an unambiguous prefix of a long option resolves to it.
+static void test_abbrev_unambiguous()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("", "verbose", 0,
+        argparse::ArgTypeCast::e_String, false));
+    parser.AddArgument(argparse::CreateNamedArgument("", "output", 1,
+        argparse::ArgTypeCast::e_String, false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--verb", "--out", "f.txt" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("verbose").GetArgumentExists());
+    auto output = obj.GetArg("output");
+    CHECK(output.GetAsString() == "f.txt");
+}
+
+// SetAllowAbbrev: a prefix matching more than one long option is rejected.
+static void test_abbrev_ambiguous()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("", "verbose", 0,
+        argparse::ArgTypeCast::e_String, false));
+    parser.AddArgument(argparse::CreateNamedArgument("", "version", 0,
+        argparse::ArgTypeCast::e_String, false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--ver" });
+    CHECK(!obj.IsArgValid());
+    CHECK(obj.GetErrorString().find("Ambiguous") != std::string::npos);
+}
+
+// SetAllowAbbrev(false) disables prefix matching; the abbreviation is unknown.
+static void test_abbrev_disabled()
+{
+    auto parser = argparse::ArgumentParser("prog").SetAllowAbbrev(false);
+    parser.AddArgument(argparse::CreateNamedArgument("", "verbose", 0,
+        argparse::ArgTypeCast::e_String, false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--verb" });
+    CHECK(!obj.IsArgValid());
+}
+
+// An exact long-name match still wins even when it is a prefix of a longer option.
+static void test_abbrev_exact_match_wins()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("", "ver", 0,
+        argparse::ArgTypeCast::e_String, false));
+    parser.AddArgument(argparse::CreateNamedArgument("", "verbose", 0,
+        argparse::ArgTypeCast::e_String, false));
+
+    // "--ver" is an exact name AND a prefix of "--verbose"; exact must win.
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--ver" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("ver").GetArgumentExists());
+}
+
 // Help text no longer glues tokens together or leaves trailing spaces on lines.
 static void test_help_formatting()
 {
@@ -471,6 +527,10 @@ int main()
     RUN(test_set_usage_override);
     RUN(test_long_only_no_leading_comma);
     RUN(test_bool_scalar);
+    RUN(test_abbrev_unambiguous);
+    RUN(test_abbrev_ambiguous);
+    RUN(test_abbrev_disabled);
+    RUN(test_abbrev_exact_match_wins);
     RUN(test_help_formatting);
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks
