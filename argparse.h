@@ -38,6 +38,7 @@ SOFTWARE.
 #include <algorithm>
 #include <stdexcept>
 #include <limits>
+#include <initializer_list>
 
 #if __cplusplus > 201402L || _MSVC_LANG > 201402L
 #include <any>
@@ -330,6 +331,16 @@ namespace ARGPARSE_NAMESPACE_NAME
             }
             m_choicesString = choices;
             return *this;
+        }
+
+        /// @brief Overload so a braced list of string literals -- e.g.
+        /// SetChoices({"+", "-"}) -- resolves unambiguously to the string
+        /// choices instead of colliding with the int/double/long long overloads.
+        /// @param choices initializer list of string literals
+        /// @return reference to current argument
+        Argument& SetChoices(std::initializer_list<const char*> choices)
+        {
+            return SetChoices(std::vector<std::string>(choices.begin(), choices.end()));
         }
 
         /// @brief vector of integers to validate arguments input data.
@@ -1498,7 +1509,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 if (minimumRequiredPositionalCount > positionalArgs.size())
                 {
-                    argObj.SetErrorString("Too few positional arguments: required " + std::to_string(positionalArgs.size()) + " got " + std::to_string(minimumRequiredPositionalCount));
+                    argObj.SetErrorString("Too few positional arguments: required " + std::to_string(minimumRequiredPositionalCount) + " got " + std::to_string(positionalArgs.size()));
                     return argObj;
                 }
 
@@ -1793,7 +1804,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             return match;
         }
 
-        /// @brief Private function which is called in case if AddArgument function
+        /// @brief Private function which is called when AddArgument function
         /// succeed without errors
         /// @param arg Argument object after all validations check
         void _addArg(const Argument& arg)
