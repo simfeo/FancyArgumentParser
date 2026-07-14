@@ -399,15 +399,54 @@ static void test_set_usage_override()
 }
 
 // A long-name-only argument renders without a stray leading comma.
+// SetAllowAbbrev(false) so no short name is auto-generated -- otherwise the
+// argument would gain a "-v" short name and no longer be long-only.
 static void test_long_only_no_leading_comma()
 {
-    auto parser = argparse::ArgumentParser("prog");
+    auto parser = argparse::ArgumentParser("prog").SetAllowAbbrev(false);
     parser.AddArgument(argparse::CreateNamedArgument("", "verbose", 0,
         argparse::ArgTypeCast::e_String, false));
 
     std::string help = parser.GetHelp(80);
     CHECK(help.find("--verbose") != std::string::npos);
     CHECK(help.find(",--verbose") == std::string::npos);
+}
+
+// SetAllowAbbrev auto-generates a single-char short name for a long-only option,
+// which then works for parsing and appears in the help.
+static void test_abbrev_generates_short_name()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("", "numbers", 1,
+        argparse::ArgTypeCast::e_int, false));
+
+    // Generated "-n" parses like the explicit long name.
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "-n", "7" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("numbers").GetAsInt() == 7);
+
+    // And it is shown in the help paired with the long name.
+    std::string help = parser.GetHelp(80);
+    CHECK(help.find("-n,--numbers") != std::string::npos);
+}
+
+// When the first letter is already taken, the next free letter is used, and
+// "h" stays reserved for the auto-added help option.
+static void test_abbrev_generation_avoids_collisions()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("n", "name", 1,
+        argparse::ArgTypeCast::e_String, false));   // explicit -n
+    parser.AddArgument(argparse::CreateNamedArgument("", "numbers", 1,
+        argparse::ArgTypeCast::e_int, false));      // 'n' taken -> 'u'
+    parser.AddArgument(argparse::CreateNamedArgument("", "host", 1,
+        argparse::ArgTypeCast::e_String, false));   // 'h' reserved -> 'o'
+
+    std::string help = parser.GetHelp(80);
+    CHECK(help.find("-u,--numbers") != std::string::npos);
+    CHECK(help.find("-o,--host") != std::string::npos);
+    // The explicit -n is untouched and no second -n was generated.
+    CHECK(help.find("-n,--name") != std::string::npos);
 }
 
 // A bool argument stores and returns the parsed value.
@@ -580,6 +619,8 @@ int main()
     RUN(test_set_usage_override);
     RUN(test_long_only_no_leading_comma);
     RUN(test_bool_scalar);
+    RUN(test_abbrev_generates_short_name);
+    RUN(test_abbrev_generation_avoids_collisions);
     RUN(test_abbrev_unambiguous);
     RUN(test_abbrev_ambiguous);
     RUN(test_abbrev_disabled);

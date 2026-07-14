@@ -1256,6 +1256,12 @@ namespace ARGPARSE_NAMESPACE_NAME
         }
 
         /// @brief Allows long options to be abbreviated if the abbreviation is unambiguous.
+        /// This has two effects when enabled:
+        ///  * during parsing, an unambiguous prefix of a long option is accepted
+        ///    on the command line (e.g. "--verb" for "--verbose");
+        ///  * for every named argument that has a long name but no explicit short
+        ///    name, a single-character short name is auto-generated (when a free
+        ///    letter is available) and shown in the generated help.
         /// @param allowAbbrev bool value true for allow (true by default)
         /// @return reference to current parser
         ArgumentParser& SetAllowAbbrev(bool allowAbbrev) noexcept
@@ -1363,6 +1369,10 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             std::string _pref{ m_prefix };
             std::string _doublePref{ m_prefix, m_prefix };
+
+            // Fill in auto short names before building the internal lookup map so
+            // the generated names participate in parsing.
+            GenerateAbbreviations();
 
             for (auto& el : m_knownArgumentNames)
             {
@@ -1664,6 +1674,10 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @return help string with proper new lines
         std::string GetHelp(size_t width = kHelpWidth, size_t nameWidthPercent = kHelpNameWidthPercent)
         {
+            // Ensure auto-generated short names appear in the help even when
+            // GetHelp is called before ParseArgs.
+            GenerateAbbreviations();
+
             width = width < kHelpWidth ? kHelpWidth : width;
             size_t nameWidthInHelp = nameWidthPercent * width / 100;
             width -= nameWidthInHelp;
@@ -1802,6 +1816,60 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
             }
             return match;
+        }
+
+        /// @brief Auto-generates single-character short names for named arguments
+        /// that have a long name but no explicit short name, when SetAllowAbbrev
+        /// is enabled. For each such argument the first free alphanumeric letter of
+        /// its long name is chosen; if every letter is already taken the argument
+        /// simply keeps no short name. The generated names are registered so they
+        /// work both for parsing and for the auto-generated help output.
+        /// Runs at most once (guarded by m_abbrevGenerated).
+        void GenerateAbbreviations()
+        {
+            if (!m_allowAbbrev || m_abbrevGenerated)
+            {
+                return;
+            }
+            m_abbrevGenerated = true;
+
+            for (size_t i = 0; i < m_arguments.size(); ++i)
+            {
+                Argument& arg = m_arguments[i];
+                // Only named arguments with a long name and no short name qualify.
+                if (arg.m_longName.empty() || !arg.m_shortName.empty()
+                    || !arg.m_positionalName.empty())
+                {
+                    continue;
+                }
+
+                for (size_t c = 0; c < arg.m_longName.size(); ++c)
+                {
+                    const char ch = arg.m_longName[c];
+                    const bool isAlnum = (ch >= 'a' && ch <= 'z')
+                        || (ch >= 'A' && ch <= 'Z')
+                        || (ch >= '0' && ch <= '9');
+                    if (!isAlnum)
+                    {
+                        continue;
+                    }
+
+                    const std::string candidate(1, ch);
+                    // "h" is reserved for the auto-added -h/--help option.
+                    if (m_addHelp && candidate == "h")
+                    {
+                        continue;
+                    }
+                    if (m_knownArgumentNames.find(candidate) != m_knownArgumentNames.end())
+                    {
+                        continue;
+                    }
+
+                    arg.m_shortName = candidate;
+                    m_knownArgumentNames[candidate] = { i, KnownNameType::e_Short };
+                    break;
+                }
+            }
         }
 
         /// @brief Private function which is called when AddArgument function
@@ -2141,6 +2209,8 @@ namespace ARGPARSE_NAMESPACE_NAME
     private:
         /// @brief allow generate short names for named arguments, short name not preset
         bool        m_allowAbbrev = true;
+        /// @brief guards GenerateAbbreviations so it runs at most once
+        bool        m_abbrevGenerated = false;
         /// @brief generate help automatically
         bool        m_addHelp = true;
         /// @brief fail parsing if unknown argument is passed to command line
