@@ -590,6 +590,101 @@ static void test_designated_initializers_cpp20()
 }
 #endif
 
+// BindTo writes parsed scalar values straight into the bound variables.
+static void test_bind_scalar_values()
+{
+    int count = -1;
+    std::string name = "unset";
+    double ratio = 0.0;
+
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("c", "count", 1).BindTo(&count));
+    parser.AddArgument(argparse::CreateNamedArgument("n", "name", 1).BindTo(&name));
+    parser.AddArgument(argparse::CreateNamedArgument("r", "ratio", 1).BindTo(&ratio));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{
+        "--count", "42", "--name", "world", "--ratio", "1.5" });
+    CHECK(obj.IsArgValid());
+    CHECK(count == 42);
+    CHECK(name == "world");
+    CHECK(ratio == 1.5);
+}
+
+// BindTo infers the argument type from the bound variable (no SetType needed).
+static void test_bind_infers_type()
+{
+    int count = 0;
+    auto parser = argparse::ArgumentParser("prog");
+    // No SetType call: BindTo(int*) must set the type to e_int so "7" parses
+    // as an int rather than staying a string.
+    parser.AddArgument(argparse::CreateNamedArgument("c", "count", 1).BindTo(&count));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--count", "7" });
+    CHECK(obj.IsArgValid());
+    CHECK(count == 7);
+}
+
+// BindTo to a vector captures every parsed token.
+static void test_bind_vector_values()
+{
+    std::vector<int> nums;
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("N", "nums")
+        .SetAnyNumberOfArgumentsButAtLeastOne()
+        .BindTo(&nums));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--nums", "1", "2", "3" });
+    CHECK(obj.IsArgValid());
+    CHECK(nums.size() == 3);
+    CHECK(nums[0] == 1 && nums[1] == 2 && nums[2] == 3);
+}
+
+// An absent optional bound argument leaves the variable at its prior value.
+static void test_bind_absent_optional_untouched()
+{
+    std::string name = "default-name";
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("n", "name", 1)
+        .SetRequired(false)
+        .BindTo(&name));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{});
+    CHECK(obj.IsArgValid());
+    CHECK(name == "default-name");   // untouched, acts as the default
+}
+
+// Bindings are applied to positional arguments too.
+static void test_bind_positional()
+{
+    int value = 0;
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreatePositionalArgument("num")
+        .BindTo(&value));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "99" });
+    CHECK(obj.IsArgValid());
+    CHECK(value == 99);
+}
+
+// A failed parse must NOT write through bindings (variables stay untouched).
+static void test_bind_not_applied_on_parse_failure()
+{
+    int required = -1;
+    int bound = -1;
+    auto parser = argparse::ArgumentParser("prog");
+    // Required argument that we will NOT supply, forcing an invalid parse.
+    parser.AddArgument(argparse::CreateNamedArgument("r", "req", 1)
+        .SetType(argparse::ArgTypeCast::e_int));
+    parser.AddArgument(argparse::CreateNamedArgument("b", "bound", 1)
+        .SetRequired(false)
+        .BindTo(&bound));
+    (void)required;
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--bound", "5" });
+    CHECK(!obj.IsArgValid());     // missing required arg
+    CHECK(bound == -1);           // binding not applied on failure
+}
+
 int main()
 {
     RUN(test_named_int_vector);
@@ -630,6 +725,12 @@ int main()
 #if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
     RUN(test_designated_initializers_cpp20);
 #endif
+    RUN(test_bind_scalar_values);
+    RUN(test_bind_infers_type);
+    RUN(test_bind_vector_values);
+    RUN(test_bind_absent_optional_untouched);
+    RUN(test_bind_positional);
+    RUN(test_bind_not_applied_on_parse_failure);
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks
               << " checks passed." << std::endl;

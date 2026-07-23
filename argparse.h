@@ -39,6 +39,7 @@ SOFTWARE.
 #include <stdexcept>
 #include <limits>
 #include <initializer_list>
+#include <functional>
 
 #if __cplusplus > 201402L || _MSVC_LANG > 201402L
 #include <any>
@@ -119,6 +120,7 @@ namespace ARGPARSE_NAMESPACE_NAME
 
     class ArgumentParser;
     class ArgumentsObject;
+    class ArgumentParsed;
 
     /// @brief This class represents argument configuration
     /// which should be passed to ArgumentParser objects instance
@@ -542,7 +544,52 @@ namespace ARGPARSE_NAMESPACE_NAME
             return m_hasDefault;
         }
 
+        /// @brief Bind a variable to this argument. After a successful
+        /// ParseArgs(), the parsed value is written directly into *target, so
+        /// you no longer have to pull it out with GetArg(name).GetAsX().
+        ///
+        /// BindTo also sets this argument's type to match the bound variable,
+        /// so a separate SetType() call is not needed (and should not be used
+        /// to contradict it).
+        ///
+        /// IMPORTANT: *target must outlive the ParseArgs() call. If the
+        /// argument is optional and absent (with no default), the bound
+        /// variable is left untouched -- initialize it yourself for a default.
+        /// @param target pointer to the variable that receives the parsed value
+        /// @return reference to current argument
+        Argument& BindTo(bool* target);
+        Argument& BindTo(int* target);
+        Argument& BindTo(long long* target);
+        Argument& BindTo(double* target);
+        Argument& BindTo(std::string* target);
+        Argument& BindTo(std::vector<bool>* target);
+        Argument& BindTo(std::vector<int>* target);
+        Argument& BindTo(std::vector<long long>* target);
+        Argument& BindTo(std::vector<double>* target);
+        Argument& BindTo(std::vector<std::string>* target);
+
+        /// @brief Does this argument have a bound variable (see BindTo)
+        /// @return true if BindTo(...) was called on this argument
+        bool HasBinding() const
+        {
+            return static_cast<bool>(m_binding);
+        }
+
+        /// @brief Apply the binding (if any) from a parsed result. Called by
+        /// ArgumentParser after a successful parse; a no-op when unbound.
+        /// @param parsed the parsed values for this argument
+        void ApplyBinding(const ArgumentParsed& parsed) const
+        {
+            if (m_binding)
+            {
+                m_binding(parsed);
+            }
+        }
+
     private:
+        /// @brief type-erased sink installed by BindTo(...); empty when unbound
+        std::function<void(const ArgumentParsed&)> m_binding = nullptr;
+
         bool                     m_hasDefault = false;
         std::vector<bool>        m_defaultBool = {};
         std::vector<int>         m_defaultInt = {};
@@ -841,6 +888,72 @@ namespace ARGPARSE_NAMESPACE_NAME
 
         friend ArgumentsObject;
     };
+
+    // ---- Argument::BindTo definitions -------------------------------------
+    // Defined out-of-line (but still inline) because they read values through
+    // ArgumentParsed's typed getters, which only become complete right here.
+    // Each overload also fixes the argument type to match the bound variable.
+
+    inline Argument& Argument::BindTo(bool* target)
+    {
+        m_type = ArgTypeCast::e_bool;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsBool(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(int* target)
+    {
+        m_type = ArgTypeCast::e_int;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsInt(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(long long* target)
+    {
+        m_type = ArgTypeCast::e_longlong;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsLongLong(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(double* target)
+    {
+        m_type = ArgTypeCast::e_double;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsDouble(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(std::string* target)
+    {
+        m_type = ArgTypeCast::e_String;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsString(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(std::vector<bool>* target)
+    {
+        m_type = ArgTypeCast::e_bool;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsVecBool(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(std::vector<int>* target)
+    {
+        m_type = ArgTypeCast::e_int;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsVecInt(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(std::vector<long long>* target)
+    {
+        m_type = ArgTypeCast::e_longlong;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsVecLongLong(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(std::vector<double>* target)
+    {
+        m_type = ArgTypeCast::e_double;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsVecDouble(); };
+        return *this;
+    }
+    inline Argument& Argument::BindTo(std::vector<std::string>* target)
+    {
+        m_type = ArgTypeCast::e_String;
+        m_binding = [target](const ArgumentParsed& parsed) { *target = parsed.GetAsVecString(); };
+        return *this;
+    }
 
     /// @brief Class that carries result of real parsing
     /// Indicates if parsing is successful and allows to get ArgumentParsed object in that case.
@@ -1622,6 +1735,25 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     argObj.SetErrorString("Required argument with name \"" + name + "\" does not exist");
                     return argObj;
+                }
+            }
+
+            // Bindings: parsing and validation succeeded, so push values into
+            // any variables the caller registered with Argument::BindTo(...).
+            // Optional arguments that are absent (and have no default) do not
+            // exist here, so their bound variables are left untouched.
+            for (size_t i = 0; i < m_arguments.size(); ++i)
+            {
+                const Argument& el = m_arguments[i];
+                if (!el.HasBinding())
+                {
+                    continue;
+                }
+                const std::string& name = el.m_longName.empty() ? (el.m_shortName.empty() ? el.m_positionalName : el.m_shortName) : el.m_longName;
+                ArgumentParsed parsedArg = argObj.GetArg(name);
+                if (parsedArg.GetArgumentExists() && parsedArg.GetArgumentCount() >= 1)
+                {
+                    el.ApplyBinding(parsedArg);
                 }
             }
 

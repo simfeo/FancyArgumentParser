@@ -33,6 +33,7 @@ submodules, no CMake packages, no linking. Everything lives in `argparse.h`.
 - 🎚️ **Flexible arity** — fixed counts, `kAnyArgCount` (zero-or-more),
   `kFromOneToInfiniteArgCount` (one-or-more), or flags (zero values).
 - ✅ **Validation** — required/optional, value `choices`, and defaults.
+- 🔗 **Variable binding** — `BindTo(&var)` writes parsed values straight into your own variables.
 - 📖 **Auto-generated help & usage**, with custom epilogue and overridable usage line.
 - 🔤 **Long-option abbreviations** (`--verb` → `--verbose` when unambiguous).
 - ⚙️ **Configurable** — custom prefix characters, ignore-unknown args, custom namespace.
@@ -102,6 +103,42 @@ parser.AddArgument(argparse::CreateNamedArgument({
 
 > **Note:** every argument is **required by default** — call `SetRequired(false)`
 > (or set `required = false`) to make one optional.
+
+## Binding values to variables
+
+Instead of pulling each value out with `GetArg(name).GetAsX()`, you can bind an
+argument directly to one of your variables with `BindTo(&var)`. After a
+successful `ParseArgs()`, the parsed value is written straight into it.
+
+```cpp
+int         count = 1;          // initial value doubles as the default
+std::string name;
+std::vector<int> ids;
+
+auto parser = argparse::ArgumentParser("prog");
+parser.AddArgument(argparse::CreateNamedArgument("c", "count", 1).BindTo(&count));
+parser.AddArgument(argparse::CreateNamedArgument("n", "name",  1).BindTo(&name));
+parser.AddArgument(argparse::CreateNamedArgument("i", "ids")
+    .SetAnyNumberOfArgumentsButAtLeastOne().BindTo(&ids));
+
+auto obj = parser.ParseArgs(argc, argv);
+if (obj.IsArgValid())
+{
+    // count, name and ids are already populated — no GetArg(...) calls needed.
+}
+```
+
+`BindTo` works for every supported type (`bool`, `int`, `long long`, `double`,
+`std::string`) and their `std::vector<>` variants, and is available in **C++11**
+onward.
+
+- **Type is inferred** from the bound variable, so you don't need a separate
+  `SetType()` call (and shouldn't add one that contradicts it).
+- **The bound variable must outlive** the `ParseArgs()` call.
+- If an **optional argument is absent** (and has no default), its bound variable
+  is left untouched — so its initial value acts as the default.
+- Bindings are applied **only on a successful parse**; a failed parse never
+  writes through them.
 
 ## Requirements
 
