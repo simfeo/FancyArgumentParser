@@ -588,6 +588,22 @@ static void test_designated_initializers_cpp20()
     CHECK(path.GetAsString() == "out.txt");
     CHECK(obj.GetArg("numbers").GetAsVecInt().size() == 3);
 }
+
+// Character nargs works inside the C++20 keyword-style spec structs, e.g.
+// .nargs = '?' / '*' / '+'.
+static void test_char_nargs_in_spec_cpp20()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument({
+        .shortName = "c", .longName = "color", .nargs = '?', .required = false}));
+    parser.AddArgument(argparse::CreatePositionalArgument({
+        .name = "files", .nargs = '*', .required = false}));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "a", "b", "--color", "auto" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("color").GetAsString() == "auto");
+    CHECK(obj.GetArg("files").GetAsVecString().size() == 2);
+}
 #endif
 
 // BindTo writes parsed scalar values straight into the bound variables.
@@ -685,9 +701,7 @@ static void test_bind_not_applied_on_parse_failure()
     CHECK(bound == -1);           // binding not applied on failure
 }
 
-// --- Positional variable-count distribution (kAnyArgCount / kFromOneToInfinite)
-// This is the cell the earlier tests never crossed: a *positional* with a
-// *variable* count receiving *more than one* token.
+// Positional with a variable count (the cell earlier tests never crossed).
 
 // '*' (zero-or-more) positional accepts 0, 1, and many tokens.
 static void test_positional_star_counts()
@@ -732,8 +746,7 @@ static void test_positional_plus_counts()
     CHECK(many.GetArg("files").GetAsVecString().size() == 3);
 }
 
-// A fixed positional followed by a variable one: the fixed takes exactly its
-// count, the variable absorbs the remainder.
+// Fixed positional then a variable one: fixed takes its count, variable the rest.
 static void test_positional_fixed_then_variable()
 {
     auto parser = argparse::ArgumentParser("prog");
@@ -760,8 +773,7 @@ static void test_positional_too_many()
 
 // --- Option/positional ordering (the nargs-bounded consumption fix) ---------
 
-// A fixed-count option consumes exactly its nargs; remaining bare tokens are
-// positionals -- regardless of whether the option comes before or after them.
+// A fixed option takes its nargs; leftover tokens are positionals, either order.
 static void test_option_positional_ordering()
 {
     auto make = []{
@@ -797,6 +809,105 @@ static void test_option_does_not_overconsume()
     CHECK(obj.IsArgValid());
     CHECK(obj.GetArg("verbose").GetArgumentCount() == 1);        // not 3
     CHECK(obj.GetArg("files").GetAsVecString().size() == 2);     // a, b
+}
+
+// --- nargs='?' (zero-or-one) and character nargs input ----------------------
+
+// A '?' positional takes zero or one token; absent falls back to the default.
+static void test_positional_optional_single()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("out")
+            .SetZeroOrOneArgument().SetRequired(false)
+            .SetDefault(std::string("a.out")));
+        return p;
+    };
+    auto present = make().ParseArgs(std::vector<std::string>{ "file" });
+    CHECK(present.IsArgValid());
+    CHECK(present.GetArg("out").GetAsString() == "file");
+
+    auto absent = make().ParseArgs(std::vector<std::string>{});
+    CHECK(absent.IsArgValid());
+    CHECK(absent.GetArg("out").GetAsString() == "a.out");   // default fallback
+}
+
+// A fixed positional then a '?' one; an extra token is rejected.
+static void test_fixed_then_optional_single()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("cmd"));
+        p.AddArgument(argparse::CreatePositionalArgument("out")
+            .SetZeroOrOneArgument().SetRequired(false));
+        return p;
+    };
+    auto one = make().ParseArgs(std::vector<std::string>{ "run" });
+    CHECK(one.IsArgValid());
+    CHECK(one.GetArg("cmd").GetAsString() == "run");
+    CHECK(!one.GetArg("out").GetArgumentExists());
+
+    auto two = make().ParseArgs(std::vector<std::string>{ "run", "x" });
+    CHECK(two.IsArgValid());
+    CHECK(two.GetArg("out").GetAsString() == "x");
+
+    auto three = make().ParseArgs(std::vector<std::string>{ "run", "x", "y" });
+    CHECK(!three.IsArgValid());   // too many
+}
+
+// A named '?' option: with a value takes it; bare it is present with 0 values.
+static void test_named_optional_single()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("c", "color")
+            .SetZeroOrOneArgument().SetRequired(false));
+        return p;
+    };
+    auto withVal = make().ParseArgs(std::vector<std::string>{ "--color", "auto" });
+    CHECK(withVal.IsArgValid());
+    CHECK(withVal.GetArg("color").GetAsString() == "auto");
+
+    auto bare = make().ParseArgs(std::vector<std::string>{ "--color" });
+    CHECK(bare.IsArgValid());
+    CHECK(bare.GetArg("color").GetArgumentExists());
+    CHECK(bare.GetArg("color").GetArgumentCount() == 0);
+}
+
+// Character nargs ('*','+','?') are equivalent to the k...ArgCount constants.
+static void test_char_nargs_input()
+{
+    // '*' via char == kAnyArgCount
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("n", "nums", '*',
+            argparse::ArgTypeCast::e_int, false));
+        auto o = p.ParseArgs(std::vector<std::string>{ "--nums", "1", "2", "3" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("nums").GetAsVecInt().size() == 3);
+    }
+    // '+' via SetNumberOfArguments('+') rejects zero
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("files")
+            .SetNumberOfArguments('+'));
+        CHECK(!p.ParseArgs(std::vector<std::string>{}).IsArgValid());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "a", "b" }).IsArgValid());
+    }
+    // '?' via SetNumberOfArguments('?') == kZeroOrOneArgCount (zero or one)
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("out")
+            .SetNumberOfArguments('?').SetRequired(false));
+        CHECK(p.ParseArgs(std::vector<std::string>{}).IsArgValid());          // zero
+        CHECK(p.ParseArgs(std::vector<std::string>{ "x" }).IsArgValid());     // one
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "x", "y" }).IsArgValid()); // too many
+    }
+    // an invalid nargs character throws at definition time
+    bool threw = false;
+    try { argparse::CreateNamedArgument("x", "y", '@'); }
+    catch (const std::exception&) { threw = true; }
+    CHECK(threw);
 }
 
 int main()
@@ -838,6 +949,7 @@ int main()
     RUN(test_spec_struct_named_and_positional);
 #if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
     RUN(test_designated_initializers_cpp20);
+    RUN(test_char_nargs_in_spec_cpp20);
 #endif
     RUN(test_bind_scalar_values);
     RUN(test_bind_infers_type);
@@ -851,6 +963,10 @@ int main()
     RUN(test_positional_too_many);
     RUN(test_option_positional_ordering);
     RUN(test_option_does_not_overconsume);
+    RUN(test_positional_optional_single);
+    RUN(test_fixed_then_optional_single);
+    RUN(test_named_optional_single);
+    RUN(test_char_nargs_input);
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks
               << " checks passed." << std::endl;

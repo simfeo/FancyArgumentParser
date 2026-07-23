@@ -116,6 +116,38 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @brief constant to indicate arguments with various
     /// count from 1 to infinite
     const int kFromOneToInfiniteArgCount = -2;
+    /// @brief constant to indicate an argument that takes zero or one value
+    /// (Python's nargs='?').
+    const int kZeroOrOneArgCount = -3;
+
+    /// @brief Argument count value. Accepts either an integer (an exact count,
+    /// or one of the k...ArgCount constants) or a Python-style character:
+    /// '?' (zero-or-one), '*' (zero-or-more), '+' (one-or-more).
+    /// Implicitly convertible to int so it can be used anywhere a plain count is
+    /// expected. An invalid character throws std::runtime_error at definition time.
+    struct NArgs
+    {
+        int value;
+
+        NArgs(int n = 1) : value(n) {}
+        NArgs(char c) : value(FromChar(c)) {}
+
+        operator int() const { return value; }
+
+        static int FromChar(char c)
+        {
+            switch (c)
+            {
+            case '?': return kZeroOrOneArgCount;
+            case '*': return kAnyArgCount;
+            case '+': return kFromOneToInfiniteArgCount;
+            default:
+                throw std::runtime_error(
+                    std::string("invalid nargs character '") + c
+                    + "'; expected '?', '*' or '+'");
+            }
+        }
+    };
 
 
     class ArgumentParser;
@@ -160,7 +192,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param help Your own custom help string start.
         static Argument CreateNamedArgument(const std::string& shortName = "",
             const std::string& longName = "",
-            const int argsCount = 1,
+            NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
             const std::string& help = "")
@@ -175,7 +207,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
         static Argument CreatePositionalArgument(const std::string& positionalName = "",
-            const int argsCount = 1,
+            NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
             const std::string& help = "")
@@ -212,12 +244,21 @@ namespace ARGPARSE_NAMESPACE_NAME
         int m_nargs = 1;
 
         /// @brief setter function for m_nargs with desired amount
-        /// @param amount int value that indicates  amount of argument.
-        /// Could be "kAnyArgCount" or "kFromOneToInfiniteArgCount", 0 or any other positive integer.
+        /// @param amount argument count: an integer (exact count or a
+        /// k...ArgCount constant), or a Python-style character '?' / '*' / '+'.
         /// @return reference to current argument
-        Argument& SetNumberOfArguments(int amount)
+        Argument& SetNumberOfArguments(NArgs amount)
         {
             m_nargs = amount;
+            return *this;
+        }
+
+        /// @brief Handy setter for an argument that takes zero or one value
+        /// (Python's nargs='?').
+        /// @return reference to current argument
+        Argument& SetZeroOrOneArgument()
+        {
+            m_nargs = kZeroOrOneArgCount;
             return *this;
         }
 
@@ -614,7 +655,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// inline linkage to be safely included in more than one translation unit.
     inline Argument CreateNamedArgument(const std::string& shortName = "",
         const std::string& longName = "",
-        const int argsCount = 1,
+        NArgs argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
         const std::string& help = "")
@@ -632,7 +673,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @return instance of Argument
     /// @note inline: see CreateNamedArgument -- required for multi-TU inclusion.
     inline Argument CreatePositionalArgument(const std::string& positionalName = "",
-        const int argsCount = 1,
+        NArgs argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
         const std::string& help = "")
@@ -656,7 +697,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     {
         std::string shortName = "";
         std::string longName = "";
-        int nargs = 1;
+        NArgs nargs = 1;
         ArgTypeCast type = ArgTypeCast::e_String;
         bool required = true;
         std::string help = "";
@@ -676,7 +717,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     struct PositionalArgSpec
     {
         std::string name = "";
-        int nargs = 1;
+        NArgs nargs = 1;
         ArgTypeCast type = ArgTypeCast::e_String;
         bool required = true;
         std::string help = "";
@@ -889,10 +930,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         friend ArgumentsObject;
     };
 
-    // ---- Argument::BindTo definitions -------------------------------------
-    // Defined out-of-line (but still inline) because they read values through
-    // ArgumentParsed's typed getters, which only become complete right here.
-    // Each overload also fixes the argument type to match the bound variable.
+    // Out-of-line: BindTo needs ArgumentParsed's getters, complete only here.
+    // Each overload also sets the argument type to match the bound variable.
 
     inline Argument& Argument::BindTo(bool* target)
     {
@@ -1524,14 +1563,10 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             bool positionalArgsEndFlag = false;
             size_t currentArgumentObjectIndex = kSizeTypeEnd;
-            // How many value tokens the currently-active named argument has
-            // already consumed. Used to stop a fixed-count option from eating
-            // more than its nargs; overflow tokens fall through to positionals.
+            // Value tokens consumed by the active option; caps fixed/'?' nargs.
             size_t currentArgConsumed = 0;
-            // True only after a fixed-count option has been satisfied and started
-            // spilling extra bare tokens into positionals. Distinguishes those
-            // overflow tokens (which are positionals) from tokens that merely
-            // follow an ignored unknown option (which are dropped).
+            // After a satisfied fixed option, extra bare tokens are positionals
+            // -- unlike tokens after an ignored unknown option, which are dropped.
             bool spillToPositional = false;
             std::vector<std::string> positionalArgs;
             ArgumentsObject argObj;
@@ -1612,13 +1647,13 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     Argument& argument = m_arguments[currentArgumentObjectIndex];
 
-                    // A fixed-count named argument (nargs >= 0) consumes at most
-                    // nargs value tokens. Once satisfied, further bare tokens are
-                    // no longer its values -- they belong to positional arguments.
-                    // Variable-count options (kAnyArgCount / kFromOneToInfinite,
-                    // nargs < 0) stay greedy until the next option, as before.
-                    const bool fixedNargs = argument.m_nargs >= 0;
-                    if (fixedNargs && currentArgConsumed >= static_cast<size_t>(argument.m_nargs))
+                    // Bounded options ('?' -> 1, fixed -> nargs) stop once full;
+                    // the rest spill to positionals. '*' / '+' stay greedy.
+                    const bool bounded = argument.m_nargs >= 0
+                        || argument.m_nargs == kZeroOrOneArgCount;
+                    const size_t boundMax = argument.m_nargs >= 0
+                        ? static_cast<size_t>(argument.m_nargs) : 1u;
+                    if (bounded && currentArgConsumed >= boundMax)
                     {
                         currentArgumentObjectIndex = kSizeTypeEnd;
                         spillToPositional = true;
@@ -1635,10 +1670,7 @@ namespace ARGPARSE_NAMESPACE_NAME
                 }
                 else if (spillToPositional)
                 {
-                    // Overflow tokens after a satisfied fixed-count option are
-                    // positionals. (Tokens following an ignored unknown option
-                    // leave spillToPositional false and are dropped.)
-                    positionalArgs.push_back(el);
+                    positionalArgs.push_back(el);   // overflow after a satisfied option
                 }
             }
 
@@ -1649,16 +1681,9 @@ namespace ARGPARSE_NAMESPACE_NAME
                     argObj.SetErrorString("Unknown positional argument:" + positionalArgs.front());
                     return argObj;
                 }
-                // Distribute the collected positional tokens across the declared
-                // positional arguments, argparse-style. Each positional has a
-                // minimum and maximum token capacity:
-                //   fixed nargs = N : min = (required ? N : 0), max = N
-                //   kAnyArgCount '*' : min = 0,                 max = infinite
-                //   kFromOneToInf '+': min = (required ? 1 : 0), max = infinite
-                // A variable-length positional greedily absorbs the slack while
-                // leaving the minimums for the positionals that follow it. At most
-                // one variable positional is meaningful; a second simply gets what
-                // the first (greedy) one leaves, matching argparse.
+                // Distribute tokens across positionals argparse-style: each takes
+                // between its min and max, and a variable ('*'/'+') one greedily
+                // absorbs the slack while reserving the minimums that follow it.
                 const size_t positionalDefsCount = m_positionalArgumentNames.size();
                 const size_t totalTokens = positionalArgs.size();
 
@@ -1676,6 +1701,12 @@ namespace ARGPARSE_NAMESPACE_NAME
                         isVariable[k] = true;
                         anyVariable = true;
                         minTokens[k] = (a.m_nargs == kFromOneToInfiniteArgCount && a.m_required) ? 1 : 0;
+                    }
+                    else if (a.m_nargs == kZeroOrOneArgCount)
+                    {
+                        // '?' : zero or one
+                        minTokens[k] = 0;
+                        sumMaxFixed += 1;
                     }
                     else
                     {
@@ -1717,11 +1748,13 @@ namespace ARGPARSE_NAMESPACE_NAME
                     {
                         take = avail;                       // greedy: grab the slack
                     }
+                    else if (argument.m_nargs == kZeroOrOneArgCount)
+                    {
+                        take = (avail >= 1) ? 1 : 0;        // '?' : zero or one
+                    }
                     else
                     {
-                        // Fixed positionals are all-or-nothing: a required one is
-                        // guaranteed its N by the sumMin/reserve accounting; an
-                        // optional one takes N only if N tokens are available.
+                        // Fixed: all-or-nothing (optional takes N only if available).
                         const size_t n = static_cast<size_t>(argument.m_nargs);
                         take = (avail >= n) ? n : (argument.m_required ? n : 0);
                     }
@@ -1763,7 +1796,8 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     if (static_cast<int>(parsedArg.GetArgumentCount()) == el.m_nargs
                         || el.m_nargs == kAnyArgCount
-                        || (el.m_nargs == kFromOneToInfiniteArgCount && parsedArg.GetArgumentCount() >= 1))
+                        || (el.m_nargs == kFromOneToInfiniteArgCount && parsedArg.GetArgumentCount() >= 1)
+                        || (el.m_nargs == kZeroOrOneArgCount && parsedArg.GetArgumentCount() <= 1))
                     {
                         continue;
                     }
@@ -1777,19 +1811,16 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     argObj.ParseDefault(el, i);
                 }
-                else if (el.m_required && el.m_nargs != kAnyArgCount)
+                // '*' and '?' are satisfied by zero values even if required.
+                else if (el.m_required && el.m_nargs != kAnyArgCount && el.m_nargs != kZeroOrOneArgCount)
                 {
-                    // kAnyArgCount ('*') means zero-or-more, so an absent one is
-                    // satisfied by zero values even when marked required.
                     argObj.SetErrorString("Required argument with name \"" + name + "\" does not exist");
                     return argObj;
                 }
             }
 
-            // Bindings: parsing and validation succeeded, so push values into
-            // any variables the caller registered with Argument::BindTo(...).
-            // Optional arguments that are absent (and have no default) do not
-            // exist here, so their bound variables are left untouched.
+            // Parsing succeeded: push values into any BindTo(...) variables.
+            // Absent optionals aren't present here, so their variables stay put.
             for (size_t i = 0; i < m_arguments.size(); ++i)
             {
                 const Argument& el = m_arguments[i];
