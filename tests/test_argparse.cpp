@@ -685,6 +685,120 @@ static void test_bind_not_applied_on_parse_failure()
     CHECK(bound == -1);           // binding not applied on failure
 }
 
+// --- Positional variable-count distribution (kAnyArgCount / kFromOneToInfinite)
+// This is the cell the earlier tests never crossed: a *positional* with a
+// *variable* count receiving *more than one* token.
+
+// '*' (zero-or-more) positional accepts 0, 1, and many tokens.
+static void test_positional_star_counts()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("files")
+            .SetAnyNumberOfArguments());   // kAnyArgCount, default required
+        return p;
+    };
+    auto zero = make().ParseArgs(std::vector<std::string>{});
+    CHECK(zero.IsArgValid());                          // zero is allowed for '*'
+    CHECK(!zero.GetArg("files").GetArgumentExists());
+
+    auto one = make().ParseArgs(std::vector<std::string>{ "a" });
+    CHECK(one.IsArgValid());
+    CHECK(one.GetArg("files").GetAsVecString().size() == 1);
+
+    auto many = make().ParseArgs(std::vector<std::string>{ "a", "b", "c" });
+    CHECK(many.IsArgValid());
+    CHECK(many.GetArg("files").GetAsVecString().size() == 3);   // was the bug
+}
+
+// '+' (one-or-more) positional rejects zero, accepts one and many.
+static void test_positional_plus_counts()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("files")
+            .SetAnyNumberOfArgumentsButAtLeastOne());   // kFromOneToInfinite
+        return p;
+    };
+    auto zero = make().ParseArgs(std::vector<std::string>{});
+    CHECK(!zero.IsArgValid());                          // '+' needs at least one
+
+    auto one = make().ParseArgs(std::vector<std::string>{ "a" });
+    CHECK(one.IsArgValid());
+    CHECK(one.GetArg("files").GetAsVecString().size() == 1);
+
+    auto many = make().ParseArgs(std::vector<std::string>{ "a", "b", "c" });
+    CHECK(many.IsArgValid());
+    CHECK(many.GetArg("files").GetAsVecString().size() == 3);
+}
+
+// A fixed positional followed by a variable one: the fixed takes exactly its
+// count, the variable absorbs the remainder.
+static void test_positional_fixed_then_variable()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreatePositionalArgument("cmd"));   // fixed 1
+    parser.AddArgument(argparse::CreatePositionalArgument("rest")
+        .SetAnyNumberOfArguments().SetRequired(false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "run", "a", "b", "c" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("cmd").GetAsString() == "run");
+    CHECK(obj.GetArg("rest").GetAsVecString().size() == 3);
+}
+
+// A single fixed positional given too many tokens is rejected.
+static void test_positional_too_many()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreatePositionalArgument("x"));   // fixed 1
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "a", "b" });
+    CHECK(!obj.IsArgValid());
+    CHECK(!obj.GetErrorString().empty());
+}
+
+// --- Option/positional ordering (the nargs-bounded consumption fix) ---------
+
+// A fixed-count option consumes exactly its nargs; remaining bare tokens are
+// positionals -- regardless of whether the option comes before or after them.
+static void test_option_positional_ordering()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("v", "verbose", 1)
+            .SetRequired(false));
+        p.AddArgument(argparse::CreatePositionalArgument("file").SetRequired(false));
+        return p;
+    };
+    // option first
+    auto a = make().ParseArgs(std::vector<std::string>{ "--verbose", "true", "f" });
+    CHECK(a.IsArgValid());
+    CHECK(a.GetArg("verbose").GetAsString() == "true");
+    CHECK(a.GetArg("file").GetAsString() == "f");
+
+    // positional first
+    auto b = make().ParseArgs(std::vector<std::string>{ "f", "--verbose", "true" });
+    CHECK(b.IsArgValid());
+    CHECK(b.GetArg("verbose").GetAsString() == "true");
+    CHECK(b.GetArg("file").GetAsString() == "f");
+}
+
+// A fixed-count option must not swallow trailing tokens meant for positionals.
+static void test_option_does_not_overconsume()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("v", "verbose", 1)
+        .SetRequired(false));
+    parser.AddArgument(argparse::CreatePositionalArgument("files")
+        .SetAnyNumberOfArguments().SetRequired(false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--verbose", "true", "a", "b" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("verbose").GetArgumentCount() == 1);        // not 3
+    CHECK(obj.GetArg("files").GetAsVecString().size() == 2);     // a, b
+}
+
 int main()
 {
     RUN(test_named_int_vector);
@@ -731,6 +845,12 @@ int main()
     RUN(test_bind_absent_optional_untouched);
     RUN(test_bind_positional);
     RUN(test_bind_not_applied_on_parse_failure);
+    RUN(test_positional_star_counts);
+    RUN(test_positional_plus_counts);
+    RUN(test_positional_fixed_then_variable);
+    RUN(test_positional_too_many);
+    RUN(test_option_positional_ordering);
+    RUN(test_option_does_not_overconsume);
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks
               << " checks passed." << std::endl;

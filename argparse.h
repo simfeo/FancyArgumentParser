@@ -1524,6 +1524,15 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             bool positionalArgsEndFlag = false;
             size_t currentArgumentObjectIndex = kSizeTypeEnd;
+            // How many value tokens the currently-active named argument has
+            // already consumed. Used to stop a fixed-count option from eating
+            // more than its nargs; overflow tokens fall through to positionals.
+            size_t currentArgConsumed = 0;
+            // True only after a fixed-count option has been satisfied and started
+            // spilling extra bare tokens into positionals. Distinguishes those
+            // overflow tokens (which are positionals) from tokens that merely
+            // follow an ignored unknown option (which are dropped).
+            bool spillToPositional = false;
             std::vector<std::string> positionalArgs;
             ArgumentsObject argObj;
             for (size_t i =0; i < args.size(); ++i)
@@ -1550,6 +1559,8 @@ namespace ARGPARSE_NAMESPACE_NAME
                 if (foundArgObject != m_knownArgumentNamesInternal.end())
                 {
                     currentArgumentObjectIndex = foundArgObject->second.position;
+                    currentArgConsumed = 0;
+                    spillToPositional = false;
 
                     Argument& argument = m_arguments[currentArgumentObjectIndex];
                     if (argument.m_nargs == 0)
@@ -1592,6 +1603,8 @@ namespace ARGPARSE_NAMESPACE_NAME
                     {
                         return argObj;
                     }
+                    // Tokens after an ignored unknown option are not positionals.
+                    spillToPositional = false;
                     continue;
                 }
 
@@ -1599,10 +1612,33 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     Argument& argument = m_arguments[currentArgumentObjectIndex];
 
-                    if (!argObj.Parse(argument, currentArgumentObjectIndex, el))
+                    // A fixed-count named argument (nargs >= 0) consumes at most
+                    // nargs value tokens. Once satisfied, further bare tokens are
+                    // no longer its values -- they belong to positional arguments.
+                    // Variable-count options (kAnyArgCount / kFromOneToInfinite,
+                    // nargs < 0) stay greedy until the next option, as before.
+                    const bool fixedNargs = argument.m_nargs >= 0;
+                    if (fixedNargs && currentArgConsumed >= static_cast<size_t>(argument.m_nargs))
+                    {
+                        currentArgumentObjectIndex = kSizeTypeEnd;
+                        spillToPositional = true;
+                        positionalArgs.push_back(el);
+                    }
+                    else if (!argObj.Parse(argument, currentArgumentObjectIndex, el))
                     {
                         return argObj;
                     }
+                    else
+                    {
+                        ++currentArgConsumed;
+                    }
+                }
+                else if (spillToPositional)
+                {
+                    // Overflow tokens after a satisfied fixed-count option are
+                    // positionals. (Tokens following an ignored unknown option
+                    // leave spillToPositional false and are dropped.)
+                    positionalArgs.push_back(el);
                 }
             }
 
@@ -1613,96 +1649,106 @@ namespace ARGPARSE_NAMESPACE_NAME
                     argObj.SetErrorString("Unknown positional argument:" + positionalArgs.front());
                     return argObj;
                 }
-                size_t minimumRequiredPositionalCount = 0;
-                size_t infiniteRequiredPositionalCount = 0;
-                size_t optionalPositionalCount = 0;
+                // Distribute the collected positional tokens across the declared
+                // positional arguments, argparse-style. Each positional has a
+                // minimum and maximum token capacity:
+                //   fixed nargs = N : min = (required ? N : 0), max = N
+                //   kAnyArgCount '*' : min = 0,                 max = infinite
+                //   kFromOneToInf '+': min = (required ? 1 : 0), max = infinite
+                // A variable-length positional greedily absorbs the slack while
+                // leaving the minimums for the positionals that follow it. At most
+                // one variable positional is meaningful; a second simply gets what
+                // the first (greedy) one leaves, matching argparse.
+                const size_t positionalDefsCount = m_positionalArgumentNames.size();
+                const size_t totalTokens = positionalArgs.size();
 
-                for (auto& el : m_positionalArgumentNames)
+                std::vector<size_t> minTokens(positionalDefsCount, 0);
+                std::vector<bool>   isVariable(positionalDefsCount, false);
+                size_t sumMin = 0;
+                size_t sumMaxFixed = 0;
+                bool   anyVariable = false;
+
+                for (size_t k = 0; k < positionalDefsCount; ++k)
                 {
-                    if (m_arguments[el.positionInArguments].m_required)
+                    const Argument& a = m_arguments[m_positionalArgumentNames[k].positionInArguments];
+                    if (a.m_nargs == kAnyArgCount || a.m_nargs == kFromOneToInfiniteArgCount)
                     {
-                        minimumRequiredPositionalCount += m_arguments[el.positionInArguments].m_nargs == kFromOneToInfiniteArgCount ? 1 : m_arguments[el.positionInArguments].m_nargs;
-                        infiniteRequiredPositionalCount = m_arguments[el.positionInArguments].m_nargs == kFromOneToInfiniteArgCount;
+                        isVariable[k] = true;
+                        anyVariable = true;
+                        minTokens[k] = (a.m_nargs == kFromOneToInfiniteArgCount && a.m_required) ? 1 : 0;
                     }
                     else
                     {
-                        ++optionalPositionalCount;
+                        const size_t n = static_cast<size_t>(a.m_nargs);
+                        minTokens[k] = a.m_required ? n : 0;
+                        sumMaxFixed += n;
                     }
+                    sumMin += minTokens[k];
                 }
-                if (minimumRequiredPositionalCount > positionalArgs.size())
+
+                if (totalTokens < sumMin)
                 {
-                    argObj.SetErrorString("Too few positional arguments: required " + std::to_string(minimumRequiredPositionalCount) + " got " + std::to_string(positionalArgs.size()));
+                    argObj.SetErrorString("Too few positional arguments: required "
+                        + std::to_string(sumMin) + " got " + std::to_string(totalTokens));
+                    return argObj;
+                }
+                if (!anyVariable && totalTokens > sumMaxFixed)
+                {
+                    argObj.SetErrorString("Too many positional arguments!");
                     return argObj;
                 }
 
-                size_t totalTokensForRequiredNargs = 1;
-                size_t additionalTokensForFirstRequiredNarg = 0;
-                size_t howMuchOptionalArgsCanBeParsed = positionalArgs.size() - minimumRequiredPositionalCount;
-                if (howMuchOptionalArgsCanBeParsed > optionalPositionalCount)
+                size_t currentTokenPosition = 0;
+                for (size_t k = 0; k < positionalDefsCount; ++k)
                 {
-                    if (infiniteRequiredPositionalCount == 0)
+                    const auto& def = m_positionalArgumentNames[k];
+                    Argument& argument = m_arguments[def.positionInArguments];
+
+                    size_t reserveAfter = 0;
+                    for (size_t j = k + 1; j < positionalDefsCount; ++j)
                     {
-                        argObj.SetErrorString("Too many positional arguments!");
-                        return argObj;
+                        reserveAfter += minTokens[j];
+                    }
+                    const size_t remaining = totalTokens - currentTokenPosition;
+                    const size_t avail = remaining > reserveAfter ? remaining - reserveAfter : 0;
+
+                    size_t take;
+                    if (isVariable[k])
+                    {
+                        take = avail;                       // greedy: grab the slack
                     }
                     else
                     {
-                        totalTokensForRequiredNargs = (howMuchOptionalArgsCanBeParsed - optionalPositionalCount) / infiniteRequiredPositionalCount;
-                        additionalTokensForFirstRequiredNarg = (howMuchOptionalArgsCanBeParsed - optionalPositionalCount) % infiniteRequiredPositionalCount;
+                        // Fixed positionals are all-or-nothing: a required one is
+                        // guaranteed its N by the sumMin/reserve accounting; an
+                        // optional one takes N only if N tokens are available.
+                        const size_t n = static_cast<size_t>(argument.m_nargs);
+                        take = (avail >= n) ? n : (argument.m_required ? n : 0);
                     }
-                    howMuchOptionalArgsCanBeParsed = optionalPositionalCount;
-                }
-
-
-                size_t currentTokenPosition = 0;
-                size_t optionalParsed = 0;
-
-                for (auto& el : m_positionalArgumentNames)
-                {
-                    Argument& argument = m_arguments[el.positionInArguments];
-                    argObj.CreateParsingStub(argument, el.positionInArguments);
-
-                    if (m_arguments[el.positionInArguments].m_required)
+                    if (take > remaining)   // defensive: never index past the tokens
                     {
-
-                        if (m_arguments[el.positionInArguments].m_nargs != kFromOneToInfiniteArgCount)
-                        {
-                            for (size_t i = 0; i < static_cast<size_t>(m_arguments[el.positionInArguments].m_nargs); ++i)
-                            {
-                                if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
-                                {
-                                    return argObj;
-                                }
-                                ++currentTokenPosition;
-                            }
-                        }
-                        else
-                        {
-                            size_t addtionalArg = 0;
-                            if (additionalTokensForFirstRequiredNarg > 0)
-                            {
-                                ++addtionalArg;
-                                --additionalTokensForFirstRequiredNarg;
-                            }
-                            for (size_t i = 0; i < totalTokensForRequiredNargs + addtionalArg; ++i)
-                            {
-                                if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
-                                {
-                                    return argObj;
-                                }
-                                ++currentTokenPosition;
-                            }
-                        }
+                        take = remaining;
                     }
-                    else if (optionalParsed <= howMuchOptionalArgsCanBeParsed)
+                    if (take == 0)
                     {
-                        if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
+                        continue;           // absent optional positional
+                    }
+
+                    argObj.CreateParsingStub(argument, def.positionInArguments);
+                    for (size_t t = 0; t < take; ++t)
+                    {
+                        if (!argObj.Parse(argument, def.positionInArguments, positionalArgs[currentTokenPosition]))
                         {
                             return argObj;
                         }
                         ++currentTokenPosition;
-                        ++optionalParsed;
                     }
+                }
+
+                if (currentTokenPosition < totalTokens)
+                {
+                    argObj.SetErrorString("Too many positional arguments!");
+                    return argObj;
                 }
             }
 
@@ -1731,8 +1777,10 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     argObj.ParseDefault(el, i);
                 }
-                else if (el.m_required)
+                else if (el.m_required && el.m_nargs != kAnyArgCount)
                 {
+                    // kAnyArgCount ('*') means zero-or-more, so an absent one is
+                    // satisfied by zero values even when marked required.
                     argObj.SetErrorString("Required argument with name \"" + name + "\" does not exist");
                     return argObj;
                 }
