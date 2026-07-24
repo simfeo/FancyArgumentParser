@@ -40,9 +40,18 @@ SOFTWARE.
 #include <limits>
 #include <initializer_list>
 #include <functional>
+#include <regex>
+#include <cctype>
 
 #if __cplusplus > 201402L || _MSVC_LANG > 201402L
 #include <any>
+#endif
+
+// std::filesystem is available from C++17. The path-existence validators
+// (SetExistingFile / ...) are only compiled when it is present.
+#if __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
+#include <filesystem>
+#define ARGPARSE_HAS_FILESYSTEM 1
 #endif
 
 /// @brief namespace of argument parser constants and Classes
@@ -56,6 +65,23 @@ namespace ARGPARSE_NAMESPACE_NAME
         const size_t kSizeTypeEnd = static_cast<size_t>(-1);
         const size_t kHelpWidth = 80;
         const size_t kHelpNameWidthPercent = 30;
+
+        bool iEquals(const std::string& a, const std::string& b)
+        {
+            if (a.size() != b.size())
+            {
+                return false;
+            }
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                if (std::tolower(static_cast<unsigned char>(a[i]))
+                    != std::tolower(static_cast<unsigned char>(b[i])))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
 
         bool isNumber(const std::string& inStr)
         {
@@ -362,17 +388,21 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief vector of strings to validate arguments input data.
         /// Empty by default. Will fail parsing if string not is in input list
         std::vector<std::string> m_choicesString = {};
+        /// @brief when true, string choices are matched case-insensitively
+        bool m_choicesIgnoreCase = false;
 
         /// @brief Handy setter of valid choices for arguments with string type
         /// @param choices vector or initializer list of valid strings
+        /// @param ignoreCase match case-insensitively (false by default)
         /// @return reference to current argument
-        Argument& SetChoices(const std::vector<std::string>& choices)
+        Argument& SetChoices(const std::vector<std::string>& choices, bool ignoreCase = false)
         {
             if (m_type != ArgTypeCast::e_String)
             {
                 throw std::runtime_error("wrong type");
             }
             m_choicesString = choices;
+            m_choicesIgnoreCase = ignoreCase;
             return *this;
         }
 
@@ -380,10 +410,11 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// SetChoices({"+", "-"}) -- resolves unambiguously to the string
         /// choices instead of colliding with the int/double/long long overloads.
         /// @param choices initializer list of string literals
+        /// @param ignoreCase match case-insensitively (false by default)
         /// @return reference to current argument
-        Argument& SetChoices(std::initializer_list<const char*> choices)
+        Argument& SetChoices(std::initializer_list<const char*> choices, bool ignoreCase = false)
         {
-            return SetChoices(std::vector<std::string>(choices.begin(), choices.end()));
+            return SetChoices(std::vector<std::string>(choices.begin(), choices.end()), ignoreCase);
         }
 
         /// @brief vector of integers to validate arguments input data.
@@ -627,9 +658,155 @@ namespace ARGPARSE_NAMESPACE_NAME
             }
         }
 
+        /// @brief Install a validator: each parsed value token must satisfy
+        /// @p predicate, otherwise parsing fails. Runs on the raw value (so it
+        /// works for any type; convert inside the predicate if needed).
+        /// @param predicate returns true for an accepted value
+        /// @param message custom error text (a default is used when empty)
+        /// @return reference to current argument
+        Argument& SetValidator(std::function<bool(const std::string&)> predicate,
+            const std::string& message = "")
+        {
+            m_validator = std::move(predicate);
+            m_validatorMessage = message;
+            return *this;
+        }
+
+        /// @brief Whether a value passes this argument's validator (true if none).
+        bool RunValidator(const std::string& value) const
+        {
+            return !m_validator || m_validator(value);
+        }
+
+        /// @brief Custom validator error message ("" means use the default).
+        const std::string& ValidatorMessage() const
+        {
+            return m_validatorMessage;
+        }
+
+        /// @brief Restrict an integer argument to the inclusive range [lo, hi].
+        /// Sets the type to e_int and installs a validator.
+        Argument& SetRange(int lo, int hi)
+        {
+            m_type = ArgTypeCast::e_int;
+            return SetRangeLL(lo, hi);
+        }
+
+        /// @brief Restrict a long long argument to the inclusive range [lo, hi].
+        Argument& SetRange(long long lo, long long hi)
+        {
+            m_type = ArgTypeCast::e_longlong;
+            return SetRangeLL(lo, hi);
+        }
+
+        /// @brief Restrict a double argument to the inclusive range [lo, hi].
+        Argument& SetRange(double lo, double hi)
+        {
+            m_type = ArgTypeCast::e_double;
+            return SetValidator(
+                [lo, hi](const std::string& s) {
+                    try { double v = std::stod(s); return v >= lo && v <= hi; }
+                    catch (...) { return false; }
+                },
+                "value out of range [" + std::to_string(lo) + ", " + std::to_string(hi) + "]");
+        }
+
+        /// @brief Restrict an integer argument to [0, max].
+        Argument& SetRange(int max) { return SetRange(0, max); }
+        /// @brief Restrict a long long argument to [0, max].
+        Argument& SetRange(long long max) { return SetRange(0LL, max); }
+        /// @brief Restrict a double argument to [0, max].
+        Argument& SetRange(double max) { return SetRange(0.0, max); }
+
+        /// @brief Require a strictly positive number (> 0). Type-agnostic.
+        Argument& SetPositive(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    try { return std::stod(s) > 0.0; } catch (...) { return false; }
+                },
+                message.empty() ? "value must be positive" : message);
+        }
+
+        /// @brief Require a non-negative number (>= 0). Type-agnostic.
+        Argument& SetNonNegative(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    try { return std::stod(s) >= 0.0; } catch (...) { return false; }
+                },
+                message.empty() ? "value must be non-negative" : message);
+        }
+
+        /// @brief Require the value to fully match an ECMAScript regular
+        /// expression. An invalid pattern throws std::regex_error at definition.
+        Argument& SetPattern(const std::string& pattern, const std::string& message = "")
+        {
+            std::regex re(pattern);
+            return SetValidator(
+                [re](const std::string& s) { return std::regex_match(s, re); },
+                message.empty() ? ("value does not match pattern \"" + pattern + "\"") : message);
+        }
+
+#ifdef ARGPARSE_HAS_FILESYSTEM
+        /// @brief Require the value to name an existing regular file (C++17+).
+        Argument& SetExistingFile(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    std::error_code ec; return std::filesystem::is_regular_file(s, ec);
+                },
+                message.empty() ? "file does not exist" : message);
+        }
+
+        /// @brief Require the value to name an existing directory (C++17+).
+        Argument& SetExistingDirectory(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    std::error_code ec; return std::filesystem::is_directory(s, ec);
+                },
+                message.empty() ? "directory does not exist" : message);
+        }
+
+        /// @brief Require the value to name an existing path (C++17+).
+        Argument& SetExistingPath(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    std::error_code ec; return std::filesystem::exists(s, ec);
+                },
+                message.empty() ? "path does not exist" : message);
+        }
+
+        /// @brief Require the value to name a path that does NOT exist (C++17+).
+        Argument& SetNonexistentPath(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    std::error_code ec; return !std::filesystem::exists(s, ec);
+                },
+                message.empty() ? "path already exists" : message);
+        }
+#endif
+
     private:
+        /// @brief Shared integer-range validator for SetRange(int) / SetRange(long long).
+        Argument& SetRangeLL(long long lo, long long hi)
+        {
+            return SetValidator(
+                [lo, hi](const std::string& s) {
+                    try { long long v = std::stoll(s); return v >= lo && v <= hi; }
+                    catch (...) { return false; }
+                },
+                "value out of range [" + std::to_string(lo) + ", " + std::to_string(hi) + "]");
+        }
+
         /// @brief type-erased sink installed by BindTo(...); empty when unbound
         std::function<void(const ArgumentParsed&)> m_binding = nullptr;
+        /// @brief value predicate installed by SetValidator(...); empty when unset
+        std::function<bool(const std::string&)> m_validator = nullptr;
+        std::string m_validatorMessage = "";
 
         bool                     m_hasDefault = false;
         std::vector<bool>        m_defaultBool = {};
@@ -1168,16 +1345,22 @@ namespace ARGPARSE_NAMESPACE_NAME
                 return true;
             }
 
+            if (argObj.m_nargs != 0 && !argObj.RunValidator(token))
+            {
+                return InvalidateArgsValidator(argObj, token);
+            }
+
             if (argument->second.m_type == ArgTypeCast::e_String)
             {
                 if (argObj.m_nargs != 0)
                 {
                     if (argObj.m_choicesString.size())
                     {
+                        const bool ic = argObj.m_choicesIgnoreCase;
                         auto it = std::find_if(argObj.m_choicesString.begin(), argObj.m_choicesString.end(),
-                            [&token](const std::string& str) -> bool
+                            [&token, ic](const std::string& str) -> bool
                             {
-                                return token == str;
+                                return ic ? iEquals(token, str) : token == str;
                             });
                         if (it == argObj.m_choicesString.end())
                         {
@@ -1372,6 +1555,21 @@ namespace ARGPARSE_NAMESPACE_NAME
             const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
 
             SetErrorString("cannot parse [\"" + token + "\"] for  argument \"" + name + "\"");
+
+            return false;
+        }
+
+        /// @brief Helper that reports a value rejected by a SetValidator predicate
+        /// @param argObj Argument whose validator rejected the value
+        /// @param token the rejected value
+        /// @return false
+        bool InvalidateArgsValidator(const Argument& argObj, const std::string& token)
+        {
+            const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
+
+            SetErrorString(argObj.ValidatorMessage().empty()
+                ? ("Invalid value \"" + token + "\" for argument \"" + name + "\"")
+                : argObj.ValidatorMessage());
 
             return false;
         }
@@ -1632,7 +1830,9 @@ namespace ARGPARSE_NAMESPACE_NAME
                     }
                     continue;
                 }
-                else if (el.find(_pref) == 0 || el.find(_doublePref) == 0)
+                // A negative number (e.g. "-3") is a value, not an option, even
+                // though it starts with the prefix.
+                else if ((el.find(_pref) == 0 || el.find(_doublePref) == 0) && !isNumber(el))
                 {
                     if (!_unknownArgumentHit(argObj, i+1, currentArgumentObjectIndex, positionalArgsEndFlag, el))
                     {

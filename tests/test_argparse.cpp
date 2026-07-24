@@ -9,6 +9,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <fstream>
 
 #include "argparse.h"
 
@@ -910,6 +911,236 @@ static void test_char_nargs_input()
     CHECK(threw);
 }
 
+// --- Validators (SetValidator) ----------------------------------------------
+
+// A validator rejects a value and reports the custom message.
+static void test_validator_custom_message()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("f", "file", 1)
+        .SetRequired(false)
+        .SetValidator([](const std::string& s) { return !s.empty() && s[0] == '/'; },
+                      "file must be absolute"));
+
+    auto ok = parser.ParseArgs(std::vector<std::string>{ "--file", "/etc/hosts" });
+    CHECK(ok.IsArgValid());
+
+    auto bad = parser.ParseArgs(std::vector<std::string>{ "--file", "rel" });
+    CHECK(!bad.IsArgValid());
+    CHECK(bad.GetErrorString() == "file must be absolute");
+}
+
+// Without a message, the default names the value and argument.
+static void test_validator_default_message()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("m", "mode", 1)
+        .SetRequired(false)
+        .SetValidator([](const std::string& s) { return s == "on" || s == "off"; }));
+
+    auto bad = parser.ParseArgs(std::vector<std::string>{ "--mode", "maybe" });
+    CHECK(!bad.IsArgValid());
+    CHECK(bad.GetErrorString().find("maybe") != std::string::npos);
+    CHECK(bad.GetErrorString().find("mode") != std::string::npos);
+}
+
+// A validator on a numeric argument runs on each value (positive values only,
+// to avoid the separate negative-number-as-option limitation).
+static void test_validator_numeric()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+            argparse::ArgTypeCast::e_int, false)
+            .SetValidator([](const std::string& s) {
+                try { return std::stoi(s) <= 10; } catch (...) { return false; } },
+                "num must be <= 10"));
+        return p;
+    };
+    auto ok = make().ParseArgs(std::vector<std::string>{ "--num", "5" });
+    CHECK(ok.IsArgValid());
+    CHECK(ok.GetArg("num").GetAsInt() == 5);
+
+    auto bad = make().ParseArgs(std::vector<std::string>{ "--num", "50" });
+    CHECK(!bad.IsArgValid());
+}
+
+// A validator applies to every value of a variable-count positional.
+static void test_validator_positional_each()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("letters")
+            .SetAnyNumberOfArguments()
+            .SetValidator([](const std::string& s) { return s.size() == 1; }));
+        return p;
+    };
+    CHECK(make().ParseArgs(std::vector<std::string>{ "a", "b", "c" }).IsArgValid());
+    CHECK(!make().ParseArgs(std::vector<std::string>{ "a", "bb" }).IsArgValid());
+}
+
+// --- Negative numbers as values, and SetRange -------------------------------
+
+// A negative number is a value, not an option, for named and positional args.
+static void test_negative_number_values()
+{
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+            argparse::ArgTypeCast::e_int, false));
+        auto o = p.ParseArgs(std::vector<std::string>{ "--num", "-3" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("num").GetAsInt() == -3);
+    }
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("nums")
+            .SetAnyNumberOfArguments().SetType(argparse::ArgTypeCast::e_int));
+        auto o = p.ParseArgs(std::vector<std::string>{ "-1", "-2", "3" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("nums").GetAsVecInt().size() == 3);
+        CHECK(o.GetArg("nums").GetAsVecInt().at(0) == -1);
+    }
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("x", "xval", 1,
+            argparse::ArgTypeCast::e_double, false));
+        auto o = p.ParseArgs(std::vector<std::string>{ "--xval", "-2.5" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("xval").GetAsDouble() == -2.5);
+    }
+}
+
+// SetRange restricts int and double arguments to an inclusive range.
+static void test_set_range()
+{
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("p", "port", 1)
+                .SetRequired(false).SetRange(1, 65535));
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--port", "8080" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--port", "70000" }).IsArgValid());
+    }
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("r", "ratio", 1)
+                .SetRequired(false).SetRange(0.0, 1.0));
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--ratio", "0.5" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--ratio", "2.0" }).IsArgValid());
+    }
+    // negative bounds and a negative value (exercises both features together)
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("t", "temp", 1)
+            .SetRequired(false).SetRange(-40, 50));
+        auto o = p.ParseArgs(std::vector<std::string>{ "--temp", "-10" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("temp").GetAsInt() == -10);
+    }
+}
+
+// --- Standard validators: range shorthand, sign, pattern, CI choices --------
+
+static void test_range_shorthand_and_signs()
+{
+    // SetRange(max) == [0, max]
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("a", "num", 1)
+                .SetRequired(false).SetRange(10));
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--num", "5" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--num", "15" }).IsArgValid());
+    }
+    // SetPositive: > 0
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("b", "cnt", 1,
+                argparse::ArgTypeCast::e_int, false).SetPositive());
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--cnt", "5" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--cnt", "0" }).IsArgValid());
+    }
+    // SetNonNegative: >= 0 (negative value reaches the validator and is rejected)
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("c", "lvl", 1,
+                argparse::ArgTypeCast::e_double, false).SetNonNegative());
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--lvl", "0" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--lvl", "-1" }).IsArgValid());
+    }
+}
+
+static void test_pattern_validator()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("e", "email", 1)
+            .SetRequired(false).SetPattern(R"(^[^@]+@[^@]+\.[^@]+$)"));
+        return p;
+    };
+    CHECK(make().ParseArgs(std::vector<std::string>{ "--email", "a@b.com" }).IsArgValid());
+    CHECK(!make().ParseArgs(std::vector<std::string>{ "--email", "nope" }).IsArgValid());
+}
+
+static void test_choices_case_insensitive()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("m", "mode", 1)
+            .SetRequired(false).SetChoices({ "On", "Off" }, true));
+        return p;
+    };
+    CHECK(make().ParseArgs(std::vector<std::string>{ "--mode", "on" }).IsArgValid());
+    CHECK(make().ParseArgs(std::vector<std::string>{ "--mode", "OFF" }).IsArgValid());
+    CHECK(!make().ParseArgs(std::vector<std::string>{ "--mode", "maybe" }).IsArgValid());
+}
+
+#ifdef ARGPARSE_HAS_FILESYSTEM
+static void test_filesystem_validators()
+{
+    const std::string tmp = "argparse_fs_test.tmp";
+    { std::ofstream(tmp) << "x"; }   // create a real file
+
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("f", "file", 1)
+            .SetRequired(false).SetExistingFile());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "--file", tmp }).IsArgValid());
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "--file", "no_such_file_xyz" }).IsArgValid());
+    }
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("d", "dir", 1)
+            .SetRequired(false).SetExistingDirectory());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "--dir", "." }).IsArgValid());
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "--dir", tmp }).IsArgValid());  // a file, not dir
+    }
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("n", "np", 1)
+            .SetRequired(false).SetNonexistentPath());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "--np", "no_such_path_xyz" }).IsArgValid());
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "--np", tmp }).IsArgValid());
+    }
+
+    std::remove(tmp.c_str());
+}
+#endif
+
 int main()
 {
     RUN(test_named_int_vector);
@@ -967,6 +1198,18 @@ int main()
     RUN(test_fixed_then_optional_single);
     RUN(test_named_optional_single);
     RUN(test_char_nargs_input);
+    RUN(test_validator_custom_message);
+    RUN(test_validator_default_message);
+    RUN(test_validator_numeric);
+    RUN(test_validator_positional_each);
+    RUN(test_negative_number_values);
+    RUN(test_set_range);
+    RUN(test_range_shorthand_and_signs);
+    RUN(test_pattern_validator);
+    RUN(test_choices_case_insensitive);
+#ifdef ARGPARSE_HAS_FILESYSTEM
+    RUN(test_filesystem_validators);
+#endif
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks
               << " checks passed." << std::endl;
