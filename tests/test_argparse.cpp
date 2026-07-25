@@ -1141,6 +1141,241 @@ static void test_filesystem_validators()
 }
 #endif
 
+// --- Ergonomic shortcuts: spec overload, char names, by-name getters --------
+
+// A short name may be given as a char as well as a string.
+static void test_char_short_name()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument(argparse::CreateNamedArgument('n', "num", 1,
+        argparse::ArgTypeCast::e_int, false));
+    p.AddArgument(argparse::CreateNamedArgument("s", "str", 1,
+        argparse::ArgTypeCast::e_String, false));   // string form still works
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "-n", "7", "--str", "hi" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetArg("num").GetAsInt() == 7);
+    CHECK(o.GetArg("str").GetAsString() == "hi");
+}
+
+// GetAsX(name) is shorthand for GetArg(name).GetAsX() -- every scalar form.
+static void test_by_name_getters_scalar()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument(argparse::CreateNamedArgument("s", "str", 1,
+        argparse::ArgTypeCast::e_String, false));
+    p.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+        argparse::ArgTypeCast::e_int, false));
+    p.AddArgument(argparse::CreateNamedArgument("l", "big", 1,
+        argparse::ArgTypeCast::e_longlong, false));
+    p.AddArgument(argparse::CreateNamedArgument("d", "ratio", 1,
+        argparse::ArgTypeCast::e_double, false));
+    p.AddArgument(argparse::CreateNamedArgument("b", "flag", 1,
+        argparse::ArgTypeCast::e_bool, false));
+
+    auto o = p.ParseArgs(std::vector<std::string>{
+        "--str", "hi", "--num", "3", "--big", "9000000000",
+        "--ratio", "1.5", "--flag", "true" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsString("str") == "hi");
+    CHECK(o.GetAsInt("num") == 3);
+    CHECK(o.GetAsLongLong("big") == 9000000000LL);
+    CHECK(o.GetAsDouble("ratio") == 1.5);
+    CHECK(o.GetAsBool("flag") == true);
+    // identical to the long form
+    CHECK(o.GetAsString("str") == o.GetArg("str").GetAsString());
+    CHECK(o.GetAsInt("num") == o.GetArg("num").GetAsInt());
+}
+
+// ... and every vector form.
+static void test_by_name_getters_vector()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument(argparse::CreateNamedArgument("s", "strs", '+',
+        argparse::ArgTypeCast::e_String, false));
+    p.AddArgument(argparse::CreateNamedArgument("n", "nums", '+',
+        argparse::ArgTypeCast::e_int, false));
+    p.AddArgument(argparse::CreateNamedArgument("l", "bigs", '+',
+        argparse::ArgTypeCast::e_longlong, false));
+    p.AddArgument(argparse::CreateNamedArgument("d", "dbls", '+',
+        argparse::ArgTypeCast::e_double, false));
+    p.AddArgument(argparse::CreateNamedArgument("b", "bools", '+',
+        argparse::ArgTypeCast::e_bool, false));
+
+    auto o = p.ParseArgs(std::vector<std::string>{
+        "--strs", "a", "b", "--nums", "1", "2", "--bigs", "9000000000",
+        "--dbls", "1.5", "2.5", "--bools", "true", "false" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsVecString("strs").size() == 2);
+    CHECK(o.GetAsVecInt("nums").size() == 2);
+    CHECK(o.GetAsVecInt("nums").at(1) == 2);
+    CHECK(o.GetAsVecLongLong("bigs").at(0) == 9000000000LL);
+    CHECK(o.GetAsVecDouble("dbls").at(1) == 2.5);
+    CHECK(o.GetAsVecBool("bools").size() == 2);
+    CHECK(o.GetAsVecBool("bools").at(0) == true);
+}
+
+// ParserSpec configures the parser without a fluent chain (aggregate form,
+// works in every standard).
+static void test_parser_spec_aggregate()
+{
+    argparse::ParserSpec spec;
+    spec.name = "tool";
+    spec.description = "the description";
+    spec.epilogue = "the epilogue";
+    spec.allowAbbrev = false;
+    spec.ignoreUnknownArgs = true;
+
+    argparse::ArgumentParser p(spec);
+    p.AddArgument(argparse::CreatePositionalArgument("x").SetRequired(false));
+
+    const std::string help = p.GetHelp(80);
+    CHECK(help.find("the description") != std::string::npos);
+    CHECK(help.find("the epilogue") != std::string::npos);
+
+    // ignoreUnknownArgs from the spec took effect
+    auto o = p.ParseArgs(std::vector<std::string>{ "v", "--bogus" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsString("x") == "v");
+}
+
+// The remaining ParserSpec fields each take effect: usage, prefixChars,
+// addHelp and allowAbbrev.
+static void test_parser_spec_remaining_fields()
+{
+    // usage overrides the generated usage line
+    {
+        argparse::ParserSpec s;
+        s.name = "t";
+        s.usage = "MY CUSTOM USAGE";
+        argparse::ArgumentParser p(s);
+        CHECK(p.GetHelp(80).find("MY CUSTOM USAGE") != std::string::npos);
+    }
+    // prefixChars changes the option prefix
+    {
+        argparse::ParserSpec s;
+        s.name = "t";
+        s.prefixChars = '+';
+        argparse::ArgumentParser p(s);
+        p.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+            argparse::ArgTypeCast::e_int, false));
+        auto o = p.ParseArgs(std::vector<std::string>{ "++num", "5" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetAsInt("num") == 5);
+    }
+    // addHelp = false removes the automatic -h/--help option.
+    // Note: the help option is registered during ParseArgs, so parse first.
+    {
+        argparse::ParserSpec s;
+        s.name = "t";
+        s.addHelp = false;
+        argparse::ArgumentParser p(s);
+        p.ParseArgs(std::vector<std::string>{});
+        CHECK(p.GetHelp(80).find("--help") == std::string::npos);
+
+        argparse::ParserSpec s2;
+        s2.name = "t";                       // default addHelp = true
+        argparse::ArgumentParser p2(s2);
+        p2.ParseArgs(std::vector<std::string>{});
+        CHECK(p2.GetHelp(80).find("--help") != std::string::npos);
+    }
+    // allowAbbrev = false rejects an abbreviated long option
+    {
+        argparse::ParserSpec s;
+        s.name = "t";
+        s.allowAbbrev = false;
+        argparse::ArgumentParser p(s);
+        p.AddArgument(argparse::CreateNamedArgument("", "verbose", 1,
+            argparse::ArgTypeCast::e_String, false));
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "--verb", "x" }).IsArgValid());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "--verbose", "x" }).IsArgValid());
+    }
+}
+
+// The string constructor still works and is unambiguous alongside ParserSpec.
+static void test_parser_string_ctor_still_works()
+{
+    auto a = argparse::ArgumentParser("plain");
+    std::string name = "fromstring";
+    auto b = argparse::ArgumentParser(name);
+    auto c = argparse::ArgumentParser("chained").SetDescription("d");
+    CHECK(c.GetHelp(80).find("d") != std::string::npos);
+    (void)a; (void)b;
+}
+
+// A char short name also works through the fluent setters.
+static void test_char_name_setters()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument(argparse::CreateNamedArgument()
+        .SetShortName('n').SetLongName("num")
+        .SetType(argparse::ArgTypeCast::e_int).SetRequired(false));
+    p.AddArgument(argparse::CreatePositionalArgument().SetPositionalName("path")
+        .SetRequired(false));
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "f.txt", "-n", "7" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsInt("num") == 7);
+    CHECK(o.GetAsString("path") == "f.txt");
+}
+
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
+// AddArgument takes a spec directly, with a char short name.
+static void test_add_argument_spec_overload()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument({.shortName = 'f', .longName = "file", .required = false});
+    p.AddArgument(argparse::PositionalArgSpec{.name = "rest", .nargs = '*', .required = false});
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "--file", "x.txt", "a", "b" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsString("file") == "x.txt");
+    CHECK(o.GetAsVecString("rest").size() == 2);
+    // the char short name resolves too
+    auto o2 = p.ParseArgs(std::vector<std::string>{ "-f", "y.txt" });
+    CHECK(o2.IsArgValid());
+    CHECK(o2.GetAsString("file") == "y.txt");
+}
+
+// Keyword-style parser construction with designated initializers.
+static void test_parser_spec_designated_cpp20()
+{
+    auto p = argparse::ArgumentParser({
+        .name = "cptool",
+        .description = "Copy files",
+        .epilogue = "See docs",
+        .allowAbbrev = false,
+        .ignoreUnknownArgs = true});
+    p.AddArgument({.name = "source"});
+
+    const std::string help = p.GetHelp(80);
+    CHECK(help.find("Copy files") != std::string::npos);
+    CHECK(help.find("See docs") != std::string::npos);
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "a.txt", "--unknown" });
+    CHECK(o.IsArgValid());                       // ignoreUnknownArgs from spec
+    CHECK(o.GetAsString("source") == "a.txt");
+}
+
+// Bare braces pick the right spec: .name is unique to PositionalArgSpec and
+// .shortName/.longName to NamedArgSpec, so no type name is needed.
+static void test_bare_brace_spec_disambiguation()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument({.name = "source", .help = "src"});
+    p.AddArgument({.name = "count", .type = argparse::ArgTypeCast::e_int});
+    p.AddArgument({.name = "extras", .nargs = '*', .required = false});
+    p.AddArgument({.shortName = 'v', .longName = "verbose", .nargs = 0, .required = false});
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "a.txt", "3", "x.txt", "-v" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsString("source") == "a.txt");
+    CHECK(o.GetAsInt("count") == 3);
+    CHECK(o.GetAsVecString("extras").size() == 1);
+    CHECK(o.GetArg("verbose").GetArgumentExists());
+}
+#endif
+
 int main()
 {
     RUN(test_named_int_vector);
@@ -1209,6 +1444,18 @@ int main()
     RUN(test_choices_case_insensitive);
 #ifdef ARGPARSE_HAS_FILESYSTEM
     RUN(test_filesystem_validators);
+#endif
+    RUN(test_char_short_name);
+    RUN(test_char_name_setters);
+    RUN(test_parser_spec_aggregate);
+    RUN(test_parser_spec_remaining_fields);
+    RUN(test_parser_string_ctor_still_works);
+    RUN(test_by_name_getters_scalar);
+    RUN(test_by_name_getters_vector);
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
+    RUN(test_add_argument_spec_overload);
+    RUN(test_bare_brace_spec_disambiguation);
+    RUN(test_parser_spec_designated_cpp20);
 #endif
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks

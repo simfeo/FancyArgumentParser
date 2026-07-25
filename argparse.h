@@ -176,6 +176,22 @@ namespace ARGPARSE_NAMESPACE_NAME
     };
 
 
+    /// @brief Argument name value. Accepts a std::string, a string literal, or a
+    /// single char -- so a short name can be written as 'f' as well as "f".
+    /// Implicitly converts to std::string, so it works anywhere a name is taken.
+    struct ArgName
+    {
+        std::string value;
+
+        ArgName() {}
+        ArgName(char c) : value(1, c) {}
+        ArgName(const char* s) : value(s ? s : "") {}
+        ArgName(const std::string& s) : value(s) {}
+
+        operator const std::string&() const { return value; }
+    };
+
+
     class ArgumentParser;
     class ArgumentsObject;
     class ArgumentParsed;
@@ -216,8 +232,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
-        static Argument CreateNamedArgument(const std::string& shortName = "",
-            const std::string& longName = "",
+        static Argument CreateNamedArgument(const ArgName& shortName = "",
+            const ArgName& longName = "",
             NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
@@ -232,7 +248,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
-        static Argument CreatePositionalArgument(const std::string& positionalName = "",
+        static Argument CreatePositionalArgument(const ArgName& positionalName = "",
             NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
@@ -333,7 +349,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Handy setter for positional argument
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
-        Argument& SetPositionalName(const std::string& name)
+        Argument& SetPositionalName(const ArgName& name)
         {
             m_positionalName = name;
             return *this;
@@ -349,7 +365,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// Can be auto-generated if possible when m_allowAbbrev in ArgumentParsed set to true.
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
-        Argument& SetShortName(const std::string& name)
+        Argument& SetShortName(const ArgName& name)
         {
             m_shortName = name;
             return *this;
@@ -366,7 +382,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// and m_allowAbbrev in ArgumentParsed is "true".
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
-        Argument& SetLongName(const std::string& name)
+        Argument& SetLongName(const ArgName& name)
         {
             m_longName = name;
             return *this;
@@ -830,8 +846,8 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @return instance of Argument
     /// @note inline: this is a free function in a header, so it must have
     /// inline linkage to be safely included in more than one translation unit.
-    inline Argument CreateNamedArgument(const std::string& shortName = "",
-        const std::string& longName = "",
+    inline Argument CreateNamedArgument(const ArgName& shortName = "",
+        const ArgName& longName = "",
         NArgs argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
@@ -849,7 +865,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @param help Initial part of help for current argument in case of auto-generated help.
     /// @return instance of Argument
     /// @note inline: see CreateNamedArgument -- required for multi-TU inclusion.
-    inline Argument CreatePositionalArgument(const std::string& positionalName = "",
+    inline Argument CreatePositionalArgument(const ArgName& positionalName = "",
         NArgs argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
@@ -872,8 +888,8 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// The same struct also works with ordinary aggregate init in C++11/14/17.
     struct NamedArgSpec
     {
-        std::string shortName = "";
-        std::string longName = "";
+        ArgName shortName = "";
+        ArgName longName = "";
         NArgs nargs = 1;
         ArgTypeCast type = ArgTypeCast::e_String;
         bool required = true;
@@ -1221,6 +1237,24 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             return argument->second;
         }
+
+        /// @name By-name value shortcuts
+        /// Equivalent to GetArg(name).GetAsX(). The scalar forms throw
+        /// std::out_of_range when the argument holds no value, so guard optional
+        /// arguments with GetArg(name).GetArgumentExists() first.
+        /// @{
+        bool        GetAsBool(const std::string& name)   { return GetArg(name).GetAsBool(); }
+        int         GetAsInt(const std::string& name)    { return GetArg(name).GetAsInt(); }
+        long long   GetAsLongLong(const std::string& name) { return GetArg(name).GetAsLongLong(); }
+        double      GetAsDouble(const std::string& name) { return GetArg(name).GetAsDouble(); }
+        std::string GetAsString(const std::string& name) { return GetArg(name).GetAsString(); }
+
+        std::vector<bool>        GetAsVecBool(const std::string& name)     { return GetArg(name).GetAsVecBool(); }
+        std::vector<int>         GetAsVecInt(const std::string& name)      { return GetArg(name).GetAsVecInt(); }
+        std::vector<long long>   GetAsVecLongLong(const std::string& name) { return GetArg(name).GetAsVecLongLong(); }
+        std::vector<double>      GetAsVecDouble(const std::string& name)   { return GetArg(name).GetAsVecDouble(); }
+        std::vector<std::string> GetAsVecString(const std::string& name)   { return GetArg(name).GetAsVecString(); }
+        /// @}
 
     private:
         ArgumentsObject() {}
@@ -1583,8 +1617,30 @@ namespace ARGPARSE_NAMESPACE_NAME
     };
 
 
+    /// @brief Aggregate description of a parser, for keyword-style construction
+    /// -- the parser-level counterpart of NamedArgSpec / PositionalArgSpec:
+    /// @code
+    ///   auto parser = argparse::ArgumentParser({
+    ///       .name        = "cptool",
+    ///       .description = "Copy files",
+    ///       .allowAbbrev = false});
+    /// @endcode
+    /// Also works with ordinary aggregate init in C++11/14/17. Field order
+    /// follows the declaration below.
+    struct ParserSpec
+    {
+        std::string name = "";
+        std::string description = "";
+        std::string epilogue = "";
+        std::string usage = "";
+        char        prefixChars = '-';
+        bool        addHelp = true;
+        bool        allowAbbrev = true;
+        bool        ignoreUnknownArgs = false;
+    };
+
     /// @brief Main class of argument parser
-    /// hold all user arguments from code and orchestrate other classes 
+    /// hold all user arguments from code and orchestrate other classes
     /// in order to parse command line input
     class ArgumentParser
     {
@@ -1593,6 +1649,19 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param name Program name which will appear in auto-generated help
         ArgumentParser(const std::string& name) noexcept
             : m_name(name)
+        {}
+
+        /// @brief Keyword-style constructor. See ParserSpec.
+        /// @param spec aggregate of the parser's properties
+        ArgumentParser(const ParserSpec& spec) noexcept
+            : m_allowAbbrev(spec.allowAbbrev)
+            , m_addHelp(spec.addHelp)
+            , m_ignoreUnknownArgs(spec.ignoreUnknownArgs)
+            , m_prefix(spec.prefixChars)
+            , m_name(spec.name)
+            , m_description(spec.description)
+            , m_epilogue(spec.epilogue)
+            , m_usage(spec.usage)
         {}
 
         /// @brief Overload default description for auto-generated command line
@@ -1668,6 +1737,23 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             m_prefix = charSym;
             return *this;
+        }
+
+        /// @brief Add a named argument straight from its spec, without going
+        /// through CreateNamedArgument, e.g.
+        /// AddArgument({.shortName='f', .longName="file", .required=true});
+        /// @param spec aggregate of the argument's properties
+        void AddArgument(const NamedArgSpec& spec)
+        {
+            AddArgument(CreateNamedArgument(spec));
+        }
+
+        /// @brief Add a positional argument straight from its spec. See the
+        /// NamedArgSpec overload.
+        /// @param spec aggregate of the argument's properties
+        void AddArgument(const PositionalArgSpec& spec)
+        {
+            AddArgument(CreatePositionalArgument(spec));
         }
 
         /// @brief Function to add arguments specification to command line parser
