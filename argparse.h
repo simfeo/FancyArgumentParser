@@ -40,9 +40,18 @@ SOFTWARE.
 #include <limits>
 #include <initializer_list>
 #include <functional>
+#include <regex>
+#include <cctype>
 
 #if __cplusplus > 201402L || _MSVC_LANG > 201402L
 #include <any>
+#endif
+
+// std::filesystem is available from C++17. The path-existence validators
+// (SetExistingFile / ...) are only compiled when it is present.
+#if __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
+#include <filesystem>
+#define ARGPARSE_HAS_FILESYSTEM 1
 #endif
 
 /// @brief namespace of argument parser constants and Classes
@@ -50,14 +59,38 @@ SOFTWARE.
 /// By default is namespace name is "argparse"
 namespace ARGPARSE_NAMESPACE_NAME
 {
-    /// @brief anonymous namespace for internal usage
-    namespace 
+    /// @brief internal helpers. A named, inline namespace (rather than an
+    /// anonymous one) so the symbols have external linkage and get emitted in
+    /// module consumers; inline keeps #include across multiple TUs valid.
+#ifdef __cpp_inline_variables
+#define ARGPARSE_DETAIL_CONST inline constexpr
+#else
+#define ARGPARSE_DETAIL_CONST const
+#endif
+    namespace detail
     {
-        const size_t kSizeTypeEnd = static_cast<size_t>(-1);
-        const size_t kHelpWidth = 80;
-        const size_t kHelpNameWidthPercent = 30;
+        ARGPARSE_DETAIL_CONST size_t kSizeTypeEnd = static_cast<size_t>(-1);
+        ARGPARSE_DETAIL_CONST size_t kHelpWidth = 80;
+        ARGPARSE_DETAIL_CONST size_t kHelpNameWidthPercent = 30;
 
-        bool isNumber(const std::string& inStr)
+        inline bool iEquals(const std::string& a, const std::string& b)
+        {
+            if (a.size() != b.size())
+            {
+                return false;
+            }
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                if (std::tolower(static_cast<unsigned char>(a[i]))
+                    != std::tolower(static_cast<unsigned char>(b[i])))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        inline bool isNumber(const std::string& inStr)
         {
             const bool hasNegSign = inStr.at(0) == '-';
             size_t dotPos = 0, expPos = 0;
@@ -91,12 +124,14 @@ namespace ARGPARSE_NAMESPACE_NAME
             return true;
         }
 
-        size_t getStringStreamLength(std::stringstream& showDesc)
+        inline size_t getStringStreamLength(std::stringstream& showDesc)
         {
             showDesc.seekp(0, std::ios::end);
             return showDesc.tellp();
         }
     }
+    using namespace detail;
+#undef ARGPARSE_DETAIL_CONST
 
 
     /// @brief Supported types for argument
@@ -110,12 +145,69 @@ namespace ARGPARSE_NAMESPACE_NAME
         e_bool
     };
 
+    // inline (external linkage) where available so the module wrapper can
+    // export them; plain const (internal linkage) otherwise. Behaviour for
+    // #include users is identical.
+#ifdef __cpp_inline_variables
+#define ARGPARSE_CONST inline constexpr
+#else
+#define ARGPARSE_CONST const
+#endif
     /// @brief constant to indicate arguments with various
     /// count from 0 to infinite
-    const int kAnyArgCount = -1;
+    ARGPARSE_CONST int kAnyArgCount = -1;
     /// @brief constant to indicate arguments with various
     /// count from 1 to infinite
-    const int kFromOneToInfiniteArgCount = -2;
+    ARGPARSE_CONST int kFromOneToInfiniteArgCount = -2;
+    /// @brief constant to indicate an argument that takes zero or one value
+    /// (Python's nargs='?').
+    ARGPARSE_CONST int kZeroOrOneArgCount = -3;
+#undef ARGPARSE_CONST
+
+    /// @brief Argument count value. Accepts either an integer (an exact count,
+    /// or one of the k...ArgCount constants) or a Python-style character:
+    /// '?' (zero-or-one), '*' (zero-or-more), '+' (one-or-more).
+    /// Implicitly convertible to int so it can be used anywhere a plain count is
+    /// expected. An invalid character throws std::runtime_error at definition time.
+    struct NArgs
+    {
+        int value;
+
+        NArgs(int n = 1) : value(n) {}
+        NArgs(char c) : value(FromChar(c)) {}
+
+        operator int() const { return value; }
+
+        static int FromChar(char c)
+        {
+            switch (c)
+            {
+            case '?': return kZeroOrOneArgCount;
+            case '*': return kAnyArgCount;
+            case '+': return kFromOneToInfiniteArgCount;
+            default:
+                throw std::runtime_error(
+                    std::string("invalid nargs character '") + c
+                    + "'; expected '?', '*' or '+'");
+            }
+        }
+    };
+
+
+    /// @brief Argument name value. Accepts a std::string, a string literal, or a
+    /// single char -- so a short name can be written as 'f' as well as "f".
+    /// Implicitly converts to std::string, so it works anywhere a name is taken.
+    struct ArgName
+    {
+        std::string value;
+
+        ArgName() {}
+        ArgName(char c) : value(1, c) {}
+        ArgName(const char* s) : value(s ? s : "") {}
+        ArgName(const std::string& s) : value(s) {}
+
+        operator const std::string&() const { return value; }
+    };
 
 
     class ArgumentParser;
@@ -158,9 +250,9 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
-        static Argument CreateNamedArgument(const std::string& shortName = "",
-            const std::string& longName = "",
-            const int argsCount = 1,
+        static Argument CreateNamedArgument(const ArgName& shortName = "",
+            const ArgName& longName = "",
+            NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
             const std::string& help = "")
@@ -174,8 +266,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
-        static Argument CreatePositionalArgument(const std::string& positionalName = "",
-            const int argsCount = 1,
+        static Argument CreatePositionalArgument(const ArgName& positionalName = "",
+            NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
             const std::string& help = "")
@@ -212,12 +304,21 @@ namespace ARGPARSE_NAMESPACE_NAME
         int m_nargs = 1;
 
         /// @brief setter function for m_nargs with desired amount
-        /// @param amount int value that indicates  amount of argument.
-        /// Could be "kAnyArgCount" or "kFromOneToInfiniteArgCount", 0 or any other positive integer.
+        /// @param amount argument count: an integer (exact count or a
+        /// k...ArgCount constant), or a Python-style character '?' / '*' / '+'.
         /// @return reference to current argument
-        Argument& SetNumberOfArguments(int amount)
+        Argument& SetNumberOfArguments(NArgs amount)
         {
             m_nargs = amount;
+            return *this;
+        }
+
+        /// @brief Handy setter for an argument that takes zero or one value
+        /// (Python's nargs='?').
+        /// @return reference to current argument
+        Argument& SetZeroOrOneArgument()
+        {
+            m_nargs = kZeroOrOneArgCount;
             return *this;
         }
 
@@ -266,7 +367,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief Handy setter for positional argument
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
-        Argument& SetPositionalName(const std::string& name)
+        Argument& SetPositionalName(const ArgName& name)
         {
             m_positionalName = name;
             return *this;
@@ -282,7 +383,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// Can be auto-generated if possible when m_allowAbbrev in ArgumentParsed set to true.
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
-        Argument& SetShortName(const std::string& name)
+        Argument& SetShortName(const ArgName& name)
         {
             m_shortName = name;
             return *this;
@@ -299,7 +400,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// and m_allowAbbrev in ArgumentParsed is "true".
         /// @param name name for positional argument. Empty by default
         /// @return reference to current argument
-        Argument& SetLongName(const std::string& name)
+        Argument& SetLongName(const ArgName& name)
         {
             m_longName = name;
             return *this;
@@ -321,17 +422,21 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @brief vector of strings to validate arguments input data.
         /// Empty by default. Will fail parsing if string not is in input list
         std::vector<std::string> m_choicesString = {};
+        /// @brief when true, string choices are matched case-insensitively
+        bool m_choicesIgnoreCase = false;
 
         /// @brief Handy setter of valid choices for arguments with string type
         /// @param choices vector or initializer list of valid strings
+        /// @param ignoreCase match case-insensitively (false by default)
         /// @return reference to current argument
-        Argument& SetChoices(const std::vector<std::string>& choices)
+        Argument& SetChoices(const std::vector<std::string>& choices, bool ignoreCase = false)
         {
             if (m_type != ArgTypeCast::e_String)
             {
                 throw std::runtime_error("wrong type");
             }
             m_choicesString = choices;
+            m_choicesIgnoreCase = ignoreCase;
             return *this;
         }
 
@@ -339,10 +444,11 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// SetChoices({"+", "-"}) -- resolves unambiguously to the string
         /// choices instead of colliding with the int/double/long long overloads.
         /// @param choices initializer list of string literals
+        /// @param ignoreCase match case-insensitively (false by default)
         /// @return reference to current argument
-        Argument& SetChoices(std::initializer_list<const char*> choices)
+        Argument& SetChoices(std::initializer_list<const char*> choices, bool ignoreCase = false)
         {
-            return SetChoices(std::vector<std::string>(choices.begin(), choices.end()));
+            return SetChoices(std::vector<std::string>(choices.begin(), choices.end()), ignoreCase);
         }
 
         /// @brief vector of integers to validate arguments input data.
@@ -586,9 +692,155 @@ namespace ARGPARSE_NAMESPACE_NAME
             }
         }
 
+        /// @brief Install a validator: each parsed value token must satisfy
+        /// @p predicate, otherwise parsing fails. Runs on the raw value (so it
+        /// works for any type; convert inside the predicate if needed).
+        /// @param predicate returns true for an accepted value
+        /// @param message custom error text (a default is used when empty)
+        /// @return reference to current argument
+        Argument& SetValidator(std::function<bool(const std::string&)> predicate,
+            const std::string& message = "")
+        {
+            m_validator = std::move(predicate);
+            m_validatorMessage = message;
+            return *this;
+        }
+
+        /// @brief Whether a value passes this argument's validator (true if none).
+        bool RunValidator(const std::string& value) const
+        {
+            return !m_validator || m_validator(value);
+        }
+
+        /// @brief Custom validator error message ("" means use the default).
+        const std::string& ValidatorMessage() const
+        {
+            return m_validatorMessage;
+        }
+
+        /// @brief Restrict an integer argument to the inclusive range [lo, hi].
+        /// Sets the type to e_int and installs a validator.
+        Argument& SetRange(int lo, int hi)
+        {
+            m_type = ArgTypeCast::e_int;
+            return SetRangeLL(lo, hi);
+        }
+
+        /// @brief Restrict a long long argument to the inclusive range [lo, hi].
+        Argument& SetRange(long long lo, long long hi)
+        {
+            m_type = ArgTypeCast::e_longlong;
+            return SetRangeLL(lo, hi);
+        }
+
+        /// @brief Restrict a double argument to the inclusive range [lo, hi].
+        Argument& SetRange(double lo, double hi)
+        {
+            m_type = ArgTypeCast::e_double;
+            return SetValidator(
+                [lo, hi](const std::string& s) {
+                    try { double v = std::stod(s); return v >= lo && v <= hi; }
+                    catch (...) { return false; }
+                },
+                "value out of range [" + std::to_string(lo) + ", " + std::to_string(hi) + "]");
+        }
+
+        /// @brief Restrict an integer argument to [0, max].
+        Argument& SetRange(int max) { return SetRange(0, max); }
+        /// @brief Restrict a long long argument to [0, max].
+        Argument& SetRange(long long max) { return SetRange(0LL, max); }
+        /// @brief Restrict a double argument to [0, max].
+        Argument& SetRange(double max) { return SetRange(0.0, max); }
+
+        /// @brief Require a strictly positive number (> 0). Type-agnostic.
+        Argument& SetPositive(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    try { return std::stod(s) > 0.0; } catch (...) { return false; }
+                },
+                message.empty() ? "value must be positive" : message);
+        }
+
+        /// @brief Require a non-negative number (>= 0). Type-agnostic.
+        Argument& SetNonNegative(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    try { return std::stod(s) >= 0.0; } catch (...) { return false; }
+                },
+                message.empty() ? "value must be non-negative" : message);
+        }
+
+        /// @brief Require the value to fully match an ECMAScript regular
+        /// expression. An invalid pattern throws std::regex_error at definition.
+        Argument& SetPattern(const std::string& pattern, const std::string& message = "")
+        {
+            std::regex re(pattern);
+            return SetValidator(
+                [re](const std::string& s) { return std::regex_match(s, re); },
+                message.empty() ? ("value does not match pattern \"" + pattern + "\"") : message);
+        }
+
+#ifdef ARGPARSE_HAS_FILESYSTEM
+        /// @brief Require the value to name an existing regular file (C++17+).
+        Argument& SetExistingFile(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    std::error_code ec; return std::filesystem::is_regular_file(s, ec);
+                },
+                message.empty() ? "file does not exist" : message);
+        }
+
+        /// @brief Require the value to name an existing directory (C++17+).
+        Argument& SetExistingDirectory(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    std::error_code ec; return std::filesystem::is_directory(s, ec);
+                },
+                message.empty() ? "directory does not exist" : message);
+        }
+
+        /// @brief Require the value to name an existing path (C++17+).
+        Argument& SetExistingPath(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    std::error_code ec; return std::filesystem::exists(s, ec);
+                },
+                message.empty() ? "path does not exist" : message);
+        }
+
+        /// @brief Require the value to name a path that does NOT exist (C++17+).
+        Argument& SetNonexistentPath(const std::string& message = "")
+        {
+            return SetValidator(
+                [](const std::string& s) {
+                    std::error_code ec; return !std::filesystem::exists(s, ec);
+                },
+                message.empty() ? "path already exists" : message);
+        }
+#endif
+
     private:
+        /// @brief Shared integer-range validator for SetRange(int) / SetRange(long long).
+        Argument& SetRangeLL(long long lo, long long hi)
+        {
+            return SetValidator(
+                [lo, hi](const std::string& s) {
+                    try { long long v = std::stoll(s); return v >= lo && v <= hi; }
+                    catch (...) { return false; }
+                },
+                "value out of range [" + std::to_string(lo) + ", " + std::to_string(hi) + "]");
+        }
+
         /// @brief type-erased sink installed by BindTo(...); empty when unbound
         std::function<void(const ArgumentParsed&)> m_binding = nullptr;
+        /// @brief value predicate installed by SetValidator(...); empty when unset
+        std::function<bool(const std::string&)> m_validator = nullptr;
+        std::string m_validatorMessage = "";
 
         bool                     m_hasDefault = false;
         std::vector<bool>        m_defaultBool = {};
@@ -612,9 +864,9 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @return instance of Argument
     /// @note inline: this is a free function in a header, so it must have
     /// inline linkage to be safely included in more than one translation unit.
-    inline Argument CreateNamedArgument(const std::string& shortName = "",
-        const std::string& longName = "",
-        const int argsCount = 1,
+    inline Argument CreateNamedArgument(const ArgName& shortName = "",
+        const ArgName& longName = "",
+        NArgs argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
         const std::string& help = "")
@@ -631,8 +883,8 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @param help Initial part of help for current argument in case of auto-generated help.
     /// @return instance of Argument
     /// @note inline: see CreateNamedArgument -- required for multi-TU inclusion.
-    inline Argument CreatePositionalArgument(const std::string& positionalName = "",
-        const int argsCount = 1,
+    inline Argument CreatePositionalArgument(const ArgName& positionalName = "",
+        NArgs argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
         const std::string& help = "")
@@ -654,9 +906,9 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// The same struct also works with ordinary aggregate init in C++11/14/17.
     struct NamedArgSpec
     {
-        std::string shortName = "";
-        std::string longName = "";
-        int nargs = 1;
+        ArgName shortName = "";
+        ArgName longName = "";
+        NArgs nargs = 1;
         ArgTypeCast type = ArgTypeCast::e_String;
         bool required = true;
         std::string help = "";
@@ -676,7 +928,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     struct PositionalArgSpec
     {
         std::string name = "";
-        int nargs = 1;
+        NArgs nargs = 1;
         ArgTypeCast type = ArgTypeCast::e_String;
         bool required = true;
         std::string help = "";
@@ -889,10 +1141,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         friend ArgumentsObject;
     };
 
-    // ---- Argument::BindTo definitions -------------------------------------
-    // Defined out-of-line (but still inline) because they read values through
-    // ArgumentParsed's typed getters, which only become complete right here.
-    // Each overload also fixes the argument type to match the bound variable.
+    // Out-of-line: BindTo needs ArgumentParsed's getters, complete only here.
+    // Each overload also sets the argument type to match the bound variable.
 
     inline Argument& Argument::BindTo(bool* target)
     {
@@ -1005,6 +1255,24 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             return argument->second;
         }
+
+        /// @name By-name value shortcuts
+        /// Equivalent to GetArg(name).GetAsX(). The scalar forms throw
+        /// std::out_of_range when the argument holds no value, so guard optional
+        /// arguments with GetArg(name).GetArgumentExists() first.
+        /// @{
+        bool        GetAsBool(const std::string& name)   { return GetArg(name).GetAsBool(); }
+        int         GetAsInt(const std::string& name)    { return GetArg(name).GetAsInt(); }
+        long long   GetAsLongLong(const std::string& name) { return GetArg(name).GetAsLongLong(); }
+        double      GetAsDouble(const std::string& name) { return GetArg(name).GetAsDouble(); }
+        std::string GetAsString(const std::string& name) { return GetArg(name).GetAsString(); }
+
+        std::vector<bool>        GetAsVecBool(const std::string& name)     { return GetArg(name).GetAsVecBool(); }
+        std::vector<int>         GetAsVecInt(const std::string& name)      { return GetArg(name).GetAsVecInt(); }
+        std::vector<long long>   GetAsVecLongLong(const std::string& name) { return GetArg(name).GetAsVecLongLong(); }
+        std::vector<double>      GetAsVecDouble(const std::string& name)   { return GetArg(name).GetAsVecDouble(); }
+        std::vector<std::string> GetAsVecString(const std::string& name)   { return GetArg(name).GetAsVecString(); }
+        /// @}
 
     private:
         ArgumentsObject() {}
@@ -1129,16 +1397,22 @@ namespace ARGPARSE_NAMESPACE_NAME
                 return true;
             }
 
+            if (argObj.m_nargs != 0 && !argObj.RunValidator(token))
+            {
+                return InvalidateArgsValidator(argObj, token);
+            }
+
             if (argument->second.m_type == ArgTypeCast::e_String)
             {
                 if (argObj.m_nargs != 0)
                 {
                     if (argObj.m_choicesString.size())
                     {
+                        const bool ic = argObj.m_choicesIgnoreCase;
                         auto it = std::find_if(argObj.m_choicesString.begin(), argObj.m_choicesString.end(),
-                            [&token](const std::string& str) -> bool
+                            [&token, ic](const std::string& str) -> bool
                             {
-                                return token == str;
+                                return ic ? iEquals(token, str) : token == str;
                             });
                         if (it == argObj.m_choicesString.end())
                         {
@@ -1337,6 +1611,21 @@ namespace ARGPARSE_NAMESPACE_NAME
             return false;
         }
 
+        /// @brief Helper that reports a value rejected by a SetValidator predicate
+        /// @param argObj Argument whose validator rejected the value
+        /// @param token the rejected value
+        /// @return false
+        bool InvalidateArgsValidator(const Argument& argObj, const std::string& token)
+        {
+            const std::string& name = argObj.m_longName.empty() ? (argObj.m_shortName.empty() ? argObj.m_positionalName : argObj.m_shortName) : argObj.m_longName;
+
+            SetErrorString(argObj.ValidatorMessage().empty()
+                ? ("Invalid value \"" + token + "\" for argument \"" + name + "\"")
+                : argObj.ValidatorMessage());
+
+            return false;
+        }
+
         bool m_isValid = false;
         std::string m_error;
         std::map<const size_t, ArgumentParsed>  m_parsed;
@@ -1346,8 +1635,30 @@ namespace ARGPARSE_NAMESPACE_NAME
     };
 
 
+    /// @brief Aggregate description of a parser, for keyword-style construction
+    /// -- the parser-level counterpart of NamedArgSpec / PositionalArgSpec:
+    /// @code
+    ///   auto parser = argparse::ArgumentParser({
+    ///       .name        = "cptool",
+    ///       .description = "Copy files",
+    ///       .allowAbbrev = false});
+    /// @endcode
+    /// Also works with ordinary aggregate init in C++11/14/17. Field order
+    /// follows the declaration below.
+    struct ParserSpec
+    {
+        std::string name = "";
+        std::string description = "";
+        std::string epilogue = "";
+        std::string usage = "";
+        char        prefixChars = '-';
+        bool        addHelp = true;
+        bool        allowAbbrev = true;
+        bool        ignoreUnknownArgs = false;
+    };
+
     /// @brief Main class of argument parser
-    /// hold all user arguments from code and orchestrate other classes 
+    /// hold all user arguments from code and orchestrate other classes
     /// in order to parse command line input
     class ArgumentParser
     {
@@ -1356,6 +1667,19 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param name Program name which will appear in auto-generated help
         ArgumentParser(const std::string& name) noexcept
             : m_name(name)
+        {}
+
+        /// @brief Keyword-style constructor. See ParserSpec.
+        /// @param spec aggregate of the parser's properties
+        ArgumentParser(const ParserSpec& spec) noexcept
+            : m_allowAbbrev(spec.allowAbbrev)
+            , m_addHelp(spec.addHelp)
+            , m_ignoreUnknownArgs(spec.ignoreUnknownArgs)
+            , m_prefix(spec.prefixChars)
+            , m_name(spec.name)
+            , m_description(spec.description)
+            , m_epilogue(spec.epilogue)
+            , m_usage(spec.usage)
         {}
 
         /// @brief Overload default description for auto-generated command line
@@ -1431,6 +1755,23 @@ namespace ARGPARSE_NAMESPACE_NAME
         {
             m_prefix = charSym;
             return *this;
+        }
+
+        /// @brief Add a named argument straight from its spec, without going
+        /// through CreateNamedArgument, e.g.
+        /// AddArgument({.shortName='f', .longName="file", .required=true});
+        /// @param spec aggregate of the argument's properties
+        void AddArgument(const NamedArgSpec& spec)
+        {
+            AddArgument(CreateNamedArgument(spec));
+        }
+
+        /// @brief Add a positional argument straight from its spec. See the
+        /// NamedArgSpec overload.
+        /// @param spec aggregate of the argument's properties
+        void AddArgument(const PositionalArgSpec& spec)
+        {
+            AddArgument(CreatePositionalArgument(spec));
         }
 
         /// @brief Function to add arguments specification to command line parser
@@ -1524,6 +1865,11 @@ namespace ARGPARSE_NAMESPACE_NAME
 
             bool positionalArgsEndFlag = false;
             size_t currentArgumentObjectIndex = kSizeTypeEnd;
+            // Value tokens consumed by the active option; caps fixed/'?' nargs.
+            size_t currentArgConsumed = 0;
+            // After a satisfied fixed option, extra bare tokens are positionals
+            // -- unlike tokens after an ignored unknown option, which are dropped.
+            bool spillToPositional = false;
             std::vector<std::string> positionalArgs;
             ArgumentsObject argObj;
             for (size_t i =0; i < args.size(); ++i)
@@ -1550,6 +1896,8 @@ namespace ARGPARSE_NAMESPACE_NAME
                 if (foundArgObject != m_knownArgumentNamesInternal.end())
                 {
                     currentArgumentObjectIndex = foundArgObject->second.position;
+                    currentArgConsumed = 0;
+                    spillToPositional = false;
 
                     Argument& argument = m_arguments[currentArgumentObjectIndex];
                     if (argument.m_nargs == 0)
@@ -1586,12 +1934,16 @@ namespace ARGPARSE_NAMESPACE_NAME
                     }
                     continue;
                 }
-                else if (el.find(_pref) == 0 || el.find(_doublePref) == 0)
+                // A negative number (e.g. "-3") is a value, not an option, even
+                // though it starts with the prefix.
+                else if ((el.find(_pref) == 0 || el.find(_doublePref) == 0) && !isNumber(el))
                 {
                     if (!_unknownArgumentHit(argObj, i+1, currentArgumentObjectIndex, positionalArgsEndFlag, el))
                     {
                         return argObj;
                     }
+                    // Tokens after an ignored unknown option are not positionals.
+                    spillToPositional = false;
                     continue;
                 }
 
@@ -1599,10 +1951,30 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     Argument& argument = m_arguments[currentArgumentObjectIndex];
 
-                    if (!argObj.Parse(argument, currentArgumentObjectIndex, el))
+                    // Bounded options ('?' -> 1, fixed -> nargs) stop once full;
+                    // the rest spill to positionals. '*' / '+' stay greedy.
+                    const bool bounded = argument.m_nargs >= 0
+                        || argument.m_nargs == kZeroOrOneArgCount;
+                    const size_t boundMax = argument.m_nargs >= 0
+                        ? static_cast<size_t>(argument.m_nargs) : 1u;
+                    if (bounded && currentArgConsumed >= boundMax)
+                    {
+                        currentArgumentObjectIndex = kSizeTypeEnd;
+                        spillToPositional = true;
+                        positionalArgs.push_back(el);
+                    }
+                    else if (!argObj.Parse(argument, currentArgumentObjectIndex, el))
                     {
                         return argObj;
                     }
+                    else
+                    {
+                        ++currentArgConsumed;
+                    }
+                }
+                else if (spillToPositional)
+                {
+                    positionalArgs.push_back(el);   // overflow after a satisfied option
                 }
             }
 
@@ -1613,96 +1985,107 @@ namespace ARGPARSE_NAMESPACE_NAME
                     argObj.SetErrorString("Unknown positional argument:" + positionalArgs.front());
                     return argObj;
                 }
-                size_t minimumRequiredPositionalCount = 0;
-                size_t infiniteRequiredPositionalCount = 0;
-                size_t optionalPositionalCount = 0;
+                // Distribute tokens across positionals argparse-style: each takes
+                // between its min and max, and a variable ('*'/'+') one greedily
+                // absorbs the slack while reserving the minimums that follow it.
+                const size_t positionalDefsCount = m_positionalArgumentNames.size();
+                const size_t totalTokens = positionalArgs.size();
 
-                for (auto& el : m_positionalArgumentNames)
+                std::vector<size_t> minTokens(positionalDefsCount, 0);
+                std::vector<bool>   isVariable(positionalDefsCount, false);
+                size_t sumMin = 0;
+                size_t sumMaxFixed = 0;
+                bool   anyVariable = false;
+
+                for (size_t k = 0; k < positionalDefsCount; ++k)
                 {
-                    if (m_arguments[el.positionInArguments].m_required)
+                    const Argument& a = m_arguments[m_positionalArgumentNames[k].positionInArguments];
+                    if (a.m_nargs == kAnyArgCount || a.m_nargs == kFromOneToInfiniteArgCount)
                     {
-                        minimumRequiredPositionalCount += m_arguments[el.positionInArguments].m_nargs == kFromOneToInfiniteArgCount ? 1 : m_arguments[el.positionInArguments].m_nargs;
-                        infiniteRequiredPositionalCount = m_arguments[el.positionInArguments].m_nargs == kFromOneToInfiniteArgCount;
+                        isVariable[k] = true;
+                        anyVariable = true;
+                        minTokens[k] = (a.m_nargs == kFromOneToInfiniteArgCount && a.m_required) ? 1 : 0;
+                    }
+                    else if (a.m_nargs == kZeroOrOneArgCount)
+                    {
+                        // '?' : zero or one
+                        minTokens[k] = 0;
+                        sumMaxFixed += 1;
                     }
                     else
                     {
-                        ++optionalPositionalCount;
+                        const size_t n = static_cast<size_t>(a.m_nargs);
+                        minTokens[k] = a.m_required ? n : 0;
+                        sumMaxFixed += n;
                     }
+                    sumMin += minTokens[k];
                 }
-                if (minimumRequiredPositionalCount > positionalArgs.size())
+
+                if (totalTokens < sumMin)
                 {
-                    argObj.SetErrorString("Too few positional arguments: required " + std::to_string(minimumRequiredPositionalCount) + " got " + std::to_string(positionalArgs.size()));
+                    argObj.SetErrorString("Too few positional arguments: required "
+                        + std::to_string(sumMin) + " got " + std::to_string(totalTokens));
+                    return argObj;
+                }
+                if (!anyVariable && totalTokens > sumMaxFixed)
+                {
+                    argObj.SetErrorString("Too many positional arguments!");
                     return argObj;
                 }
 
-                size_t totalTokensForRequiredNargs = 1;
-                size_t additionalTokensForFirstRequiredNarg = 0;
-                size_t howMuchOptionalArgsCanBeParsed = positionalArgs.size() - minimumRequiredPositionalCount;
-                if (howMuchOptionalArgsCanBeParsed > optionalPositionalCount)
+                size_t currentTokenPosition = 0;
+                for (size_t k = 0; k < positionalDefsCount; ++k)
                 {
-                    if (infiniteRequiredPositionalCount == 0)
+                    const auto& def = m_positionalArgumentNames[k];
+                    Argument& argument = m_arguments[def.positionInArguments];
+
+                    size_t reserveAfter = 0;
+                    for (size_t j = k + 1; j < positionalDefsCount; ++j)
                     {
-                        argObj.SetErrorString("Too many positional arguments!");
-                        return argObj;
+                        reserveAfter += minTokens[j];
+                    }
+                    const size_t remaining = totalTokens - currentTokenPosition;
+                    const size_t avail = remaining > reserveAfter ? remaining - reserveAfter : 0;
+
+                    size_t take;
+                    if (isVariable[k])
+                    {
+                        take = avail;                       // greedy: grab the slack
+                    }
+                    else if (argument.m_nargs == kZeroOrOneArgCount)
+                    {
+                        take = (avail >= 1) ? 1 : 0;        // '?' : zero or one
                     }
                     else
                     {
-                        totalTokensForRequiredNargs = (howMuchOptionalArgsCanBeParsed - optionalPositionalCount) / infiniteRequiredPositionalCount;
-                        additionalTokensForFirstRequiredNarg = (howMuchOptionalArgsCanBeParsed - optionalPositionalCount) % infiniteRequiredPositionalCount;
+                        // Fixed: all-or-nothing (optional takes N only if available).
+                        const size_t n = static_cast<size_t>(argument.m_nargs);
+                        take = (avail >= n) ? n : (argument.m_required ? n : 0);
                     }
-                    howMuchOptionalArgsCanBeParsed = optionalPositionalCount;
-                }
-
-
-                size_t currentTokenPosition = 0;
-                size_t optionalParsed = 0;
-
-                for (auto& el : m_positionalArgumentNames)
-                {
-                    Argument& argument = m_arguments[el.positionInArguments];
-                    argObj.CreateParsingStub(argument, el.positionInArguments);
-
-                    if (m_arguments[el.positionInArguments].m_required)
+                    if (take > remaining)   // defensive: never index past the tokens
                     {
-
-                        if (m_arguments[el.positionInArguments].m_nargs != kFromOneToInfiniteArgCount)
-                        {
-                            for (size_t i = 0; i < static_cast<size_t>(m_arguments[el.positionInArguments].m_nargs); ++i)
-                            {
-                                if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
-                                {
-                                    return argObj;
-                                }
-                                ++currentTokenPosition;
-                            }
-                        }
-                        else
-                        {
-                            size_t addtionalArg = 0;
-                            if (additionalTokensForFirstRequiredNarg > 0)
-                            {
-                                ++addtionalArg;
-                                --additionalTokensForFirstRequiredNarg;
-                            }
-                            for (size_t i = 0; i < totalTokensForRequiredNargs + addtionalArg; ++i)
-                            {
-                                if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
-                                {
-                                    return argObj;
-                                }
-                                ++currentTokenPosition;
-                            }
-                        }
+                        take = remaining;
                     }
-                    else if (optionalParsed <= howMuchOptionalArgsCanBeParsed)
+                    if (take == 0)
                     {
-                        if (!argObj.Parse(argument, el.positionInArguments, positionalArgs[currentTokenPosition]))
+                        continue;           // absent optional positional
+                    }
+
+                    argObj.CreateParsingStub(argument, def.positionInArguments);
+                    for (size_t t = 0; t < take; ++t)
+                    {
+                        if (!argObj.Parse(argument, def.positionInArguments, positionalArgs[currentTokenPosition]))
                         {
                             return argObj;
                         }
                         ++currentTokenPosition;
-                        ++optionalParsed;
                     }
+                }
+
+                if (currentTokenPosition < totalTokens)
+                {
+                    argObj.SetErrorString("Too many positional arguments!");
+                    return argObj;
                 }
             }
 
@@ -1717,7 +2100,8 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     if (static_cast<int>(parsedArg.GetArgumentCount()) == el.m_nargs
                         || el.m_nargs == kAnyArgCount
-                        || (el.m_nargs == kFromOneToInfiniteArgCount && parsedArg.GetArgumentCount() >= 1))
+                        || (el.m_nargs == kFromOneToInfiniteArgCount && parsedArg.GetArgumentCount() >= 1)
+                        || (el.m_nargs == kZeroOrOneArgCount && parsedArg.GetArgumentCount() <= 1))
                     {
                         continue;
                     }
@@ -1731,17 +2115,16 @@ namespace ARGPARSE_NAMESPACE_NAME
                 {
                     argObj.ParseDefault(el, i);
                 }
-                else if (el.m_required)
+                // '*' and '?' are satisfied by zero values even if required.
+                else if (el.m_required && el.m_nargs != kAnyArgCount && el.m_nargs != kZeroOrOneArgCount)
                 {
                     argObj.SetErrorString("Required argument with name \"" + name + "\" does not exist");
                     return argObj;
                 }
             }
 
-            // Bindings: parsing and validation succeeded, so push values into
-            // any variables the caller registered with Argument::BindTo(...).
-            // Optional arguments that are absent (and have no default) do not
-            // exist here, so their bound variables are left untouched.
+            // Parsing succeeded: push values into any BindTo(...) variables.
+            // Absent optionals aren't present here, so their variables stay put.
             for (size_t i = 0; i < m_arguments.size(); ++i)
             {
                 const Argument& el = m_arguments[i];

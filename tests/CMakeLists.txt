@@ -31,3 +31,44 @@ else()
 endif()
 
 add_test(NAME test_argparse COMMAND test_argparse)
+
+# --- Optional C++20 module build -------------------------------------------
+# Builds the same library through argparse.ixx (import argparse;) instead of the
+# header. Only enabled where the toolchain reliably supports named modules:
+# MSVC, or GCC >= 14, with CMake >= 3.28 and C++20 or newer. Everything else
+# (e.g. AppleClang) simply skips it, so the header-only path is never affected.
+set(_argparse_build_module OFF)
+if(NOT CMAKE_VERSION VERSION_LESS "3.28" AND CMAKE_CXX_STANDARD GREATER_EQUAL 20)
+    if(MSVC)
+        set(_argparse_build_module ON)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+           AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS "14")
+        set(_argparse_build_module ON)
+    endif()
+endif()
+
+if(_argparse_build_module)
+    # Enable scanning of ordinary sources for `import` (off by default because
+    # cmake_minimum_required above predates modules); needed so the consumer is
+    # ordered after the module interface.
+    if(POLICY CMP0155)
+        cmake_policy(SET CMP0155 NEW)
+    endif()
+    add_executable(test_module test_module.cpp)
+    target_sources(test_module
+        PRIVATE
+        FILE_SET argparse_module TYPE CXX_MODULES
+        BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/..
+        FILES ${CMAKE_CURRENT_SOURCE_DIR}/../argparse.ixx)
+    target_include_directories(test_module PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+    target_compile_features(test_module PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(test_module PRIVATE /W4)
+    else()
+        target_compile_options(test_module PRIVATE -Wall -Wextra)
+    endif()
+    add_test(NAME test_module COMMAND test_module)
+    message(STATUS "argparse: C++20 module test enabled")
+else()
+    message(STATUS "argparse: C++20 module test skipped (toolchain/standard)")
+endif()

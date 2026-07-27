@@ -9,6 +9,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <fstream>
 
 #include "argparse.h"
 
@@ -588,6 +589,22 @@ static void test_designated_initializers_cpp20()
     CHECK(path.GetAsString() == "out.txt");
     CHECK(obj.GetArg("numbers").GetAsVecInt().size() == 3);
 }
+
+// Character nargs works inside the C++20 keyword-style spec structs, e.g.
+// .nargs = '?' / '*' / '+'.
+static void test_char_nargs_in_spec_cpp20()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument({
+        .shortName = "c", .longName = "color", .nargs = '?', .required = false}));
+    parser.AddArgument(argparse::CreatePositionalArgument({
+        .name = "files", .nargs = '*', .required = false}));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "a", "b", "--color", "auto" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("color").GetAsString() == "auto");
+    CHECK(obj.GetArg("files").GetAsVecString().size() == 2);
+}
 #endif
 
 // BindTo writes parsed scalar values straight into the bound variables.
@@ -685,6 +702,680 @@ static void test_bind_not_applied_on_parse_failure()
     CHECK(bound == -1);           // binding not applied on failure
 }
 
+// Positional with a variable count (the cell earlier tests never crossed).
+
+// '*' (zero-or-more) positional accepts 0, 1, and many tokens.
+static void test_positional_star_counts()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("files")
+            .SetAnyNumberOfArguments());   // kAnyArgCount, default required
+        return p;
+    };
+    auto zero = make().ParseArgs(std::vector<std::string>{});
+    CHECK(zero.IsArgValid());                          // zero is allowed for '*'
+    CHECK(!zero.GetArg("files").GetArgumentExists());
+
+    auto one = make().ParseArgs(std::vector<std::string>{ "a" });
+    CHECK(one.IsArgValid());
+    CHECK(one.GetArg("files").GetAsVecString().size() == 1);
+
+    auto many = make().ParseArgs(std::vector<std::string>{ "a", "b", "c" });
+    CHECK(many.IsArgValid());
+    CHECK(many.GetArg("files").GetAsVecString().size() == 3);   // was the bug
+}
+
+// '+' (one-or-more) positional rejects zero, accepts one and many.
+static void test_positional_plus_counts()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("files")
+            .SetAnyNumberOfArgumentsButAtLeastOne());   // kFromOneToInfinite
+        return p;
+    };
+    auto zero = make().ParseArgs(std::vector<std::string>{});
+    CHECK(!zero.IsArgValid());                          // '+' needs at least one
+
+    auto one = make().ParseArgs(std::vector<std::string>{ "a" });
+    CHECK(one.IsArgValid());
+    CHECK(one.GetArg("files").GetAsVecString().size() == 1);
+
+    auto many = make().ParseArgs(std::vector<std::string>{ "a", "b", "c" });
+    CHECK(many.IsArgValid());
+    CHECK(many.GetArg("files").GetAsVecString().size() == 3);
+}
+
+// Fixed positional then a variable one: fixed takes its count, variable the rest.
+static void test_positional_fixed_then_variable()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreatePositionalArgument("cmd"));   // fixed 1
+    parser.AddArgument(argparse::CreatePositionalArgument("rest")
+        .SetAnyNumberOfArguments().SetRequired(false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "run", "a", "b", "c" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("cmd").GetAsString() == "run");
+    CHECK(obj.GetArg("rest").GetAsVecString().size() == 3);
+}
+
+// A single fixed positional given too many tokens is rejected.
+static void test_positional_too_many()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreatePositionalArgument("x"));   // fixed 1
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "a", "b" });
+    CHECK(!obj.IsArgValid());
+    CHECK(!obj.GetErrorString().empty());
+}
+
+// --- Option/positional ordering (the nargs-bounded consumption fix) ---------
+
+// A fixed option takes its nargs; leftover tokens are positionals, either order.
+static void test_option_positional_ordering()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("v", "verbose", 1)
+            .SetRequired(false));
+        p.AddArgument(argparse::CreatePositionalArgument("file").SetRequired(false));
+        return p;
+    };
+    // option first
+    auto a = make().ParseArgs(std::vector<std::string>{ "--verbose", "true", "f" });
+    CHECK(a.IsArgValid());
+    CHECK(a.GetArg("verbose").GetAsString() == "true");
+    CHECK(a.GetArg("file").GetAsString() == "f");
+
+    // positional first
+    auto b = make().ParseArgs(std::vector<std::string>{ "f", "--verbose", "true" });
+    CHECK(b.IsArgValid());
+    CHECK(b.GetArg("verbose").GetAsString() == "true");
+    CHECK(b.GetArg("file").GetAsString() == "f");
+}
+
+// A fixed-count option must not swallow trailing tokens meant for positionals.
+static void test_option_does_not_overconsume()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("v", "verbose", 1)
+        .SetRequired(false));
+    parser.AddArgument(argparse::CreatePositionalArgument("files")
+        .SetAnyNumberOfArguments().SetRequired(false));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{ "--verbose", "true", "a", "b" });
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetArg("verbose").GetArgumentCount() == 1);        // not 3
+    CHECK(obj.GetArg("files").GetAsVecString().size() == 2);     // a, b
+}
+
+// --- nargs='?' (zero-or-one) and character nargs input ----------------------
+
+// A '?' positional takes zero or one token; absent falls back to the default.
+static void test_positional_optional_single()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("out")
+            .SetZeroOrOneArgument().SetRequired(false)
+            .SetDefault(std::string("a.out")));
+        return p;
+    };
+    auto present = make().ParseArgs(std::vector<std::string>{ "file" });
+    CHECK(present.IsArgValid());
+    CHECK(present.GetArg("out").GetAsString() == "file");
+
+    auto absent = make().ParseArgs(std::vector<std::string>{});
+    CHECK(absent.IsArgValid());
+    CHECK(absent.GetArg("out").GetAsString() == "a.out");   // default fallback
+}
+
+// A fixed positional then a '?' one; an extra token is rejected.
+static void test_fixed_then_optional_single()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("cmd"));
+        p.AddArgument(argparse::CreatePositionalArgument("out")
+            .SetZeroOrOneArgument().SetRequired(false));
+        return p;
+    };
+    auto one = make().ParseArgs(std::vector<std::string>{ "run" });
+    CHECK(one.IsArgValid());
+    CHECK(one.GetArg("cmd").GetAsString() == "run");
+    CHECK(!one.GetArg("out").GetArgumentExists());
+
+    auto two = make().ParseArgs(std::vector<std::string>{ "run", "x" });
+    CHECK(two.IsArgValid());
+    CHECK(two.GetArg("out").GetAsString() == "x");
+
+    auto three = make().ParseArgs(std::vector<std::string>{ "run", "x", "y" });
+    CHECK(!three.IsArgValid());   // too many
+}
+
+// A named '?' option: with a value takes it; bare it is present with 0 values.
+static void test_named_optional_single()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("c", "color")
+            .SetZeroOrOneArgument().SetRequired(false));
+        return p;
+    };
+    auto withVal = make().ParseArgs(std::vector<std::string>{ "--color", "auto" });
+    CHECK(withVal.IsArgValid());
+    CHECK(withVal.GetArg("color").GetAsString() == "auto");
+
+    auto bare = make().ParseArgs(std::vector<std::string>{ "--color" });
+    CHECK(bare.IsArgValid());
+    CHECK(bare.GetArg("color").GetArgumentExists());
+    CHECK(bare.GetArg("color").GetArgumentCount() == 0);
+}
+
+// Character nargs ('*','+','?') are equivalent to the k...ArgCount constants.
+static void test_char_nargs_input()
+{
+    // '*' via char == kAnyArgCount
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("n", "nums", '*',
+            argparse::ArgTypeCast::e_int, false));
+        auto o = p.ParseArgs(std::vector<std::string>{ "--nums", "1", "2", "3" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("nums").GetAsVecInt().size() == 3);
+    }
+    // '+' via SetNumberOfArguments('+') rejects zero
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("files")
+            .SetNumberOfArguments('+'));
+        CHECK(!p.ParseArgs(std::vector<std::string>{}).IsArgValid());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "a", "b" }).IsArgValid());
+    }
+    // '?' via SetNumberOfArguments('?') == kZeroOrOneArgCount (zero or one)
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("out")
+            .SetNumberOfArguments('?').SetRequired(false));
+        CHECK(p.ParseArgs(std::vector<std::string>{}).IsArgValid());          // zero
+        CHECK(p.ParseArgs(std::vector<std::string>{ "x" }).IsArgValid());     // one
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "x", "y" }).IsArgValid()); // too many
+    }
+    // an invalid nargs character throws at definition time
+    bool threw = false;
+    try { argparse::CreateNamedArgument("x", "y", '@'); }
+    catch (const std::exception&) { threw = true; }
+    CHECK(threw);
+}
+
+// --- Validators (SetValidator) ----------------------------------------------
+
+// A validator rejects a value and reports the custom message.
+static void test_validator_custom_message()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("f", "file", 1)
+        .SetRequired(false)
+        .SetValidator([](const std::string& s) { return !s.empty() && s[0] == '/'; },
+                      "file must be absolute"));
+
+    auto ok = parser.ParseArgs(std::vector<std::string>{ "--file", "/etc/hosts" });
+    CHECK(ok.IsArgValid());
+
+    auto bad = parser.ParseArgs(std::vector<std::string>{ "--file", "rel" });
+    CHECK(!bad.IsArgValid());
+    CHECK(bad.GetErrorString() == "file must be absolute");
+}
+
+// Without a message, the default names the value and argument.
+static void test_validator_default_message()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("m", "mode", 1)
+        .SetRequired(false)
+        .SetValidator([](const std::string& s) { return s == "on" || s == "off"; }));
+
+    auto bad = parser.ParseArgs(std::vector<std::string>{ "--mode", "maybe" });
+    CHECK(!bad.IsArgValid());
+    CHECK(bad.GetErrorString().find("maybe") != std::string::npos);
+    CHECK(bad.GetErrorString().find("mode") != std::string::npos);
+}
+
+// A validator on a numeric argument runs on each value (positive values only,
+// to avoid the separate negative-number-as-option limitation).
+static void test_validator_numeric()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+            argparse::ArgTypeCast::e_int, false)
+            .SetValidator([](const std::string& s) {
+                try { return std::stoi(s) <= 10; } catch (...) { return false; } },
+                "num must be <= 10"));
+        return p;
+    };
+    auto ok = make().ParseArgs(std::vector<std::string>{ "--num", "5" });
+    CHECK(ok.IsArgValid());
+    CHECK(ok.GetArg("num").GetAsInt() == 5);
+
+    auto bad = make().ParseArgs(std::vector<std::string>{ "--num", "50" });
+    CHECK(!bad.IsArgValid());
+}
+
+// A validator applies to every value of a variable-count positional.
+static void test_validator_positional_each()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("letters")
+            .SetAnyNumberOfArguments()
+            .SetValidator([](const std::string& s) { return s.size() == 1; }));
+        return p;
+    };
+    CHECK(make().ParseArgs(std::vector<std::string>{ "a", "b", "c" }).IsArgValid());
+    CHECK(!make().ParseArgs(std::vector<std::string>{ "a", "bb" }).IsArgValid());
+}
+
+// --- Negative numbers as values, and SetRange -------------------------------
+
+// A negative number is a value, not an option, for named and positional args.
+static void test_negative_number_values()
+{
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+            argparse::ArgTypeCast::e_int, false));
+        auto o = p.ParseArgs(std::vector<std::string>{ "--num", "-3" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("num").GetAsInt() == -3);
+    }
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreatePositionalArgument("nums")
+            .SetAnyNumberOfArguments().SetType(argparse::ArgTypeCast::e_int));
+        auto o = p.ParseArgs(std::vector<std::string>{ "-1", "-2", "3" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("nums").GetAsVecInt().size() == 3);
+        CHECK(o.GetArg("nums").GetAsVecInt().at(0) == -1);
+    }
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("x", "xval", 1,
+            argparse::ArgTypeCast::e_double, false));
+        auto o = p.ParseArgs(std::vector<std::string>{ "--xval", "-2.5" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("xval").GetAsDouble() == -2.5);
+    }
+}
+
+// SetRange restricts int and double arguments to an inclusive range.
+static void test_set_range()
+{
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("p", "port", 1)
+                .SetRequired(false).SetRange(1, 65535));
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--port", "8080" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--port", "70000" }).IsArgValid());
+    }
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("r", "ratio", 1)
+                .SetRequired(false).SetRange(0.0, 1.0));
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--ratio", "0.5" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--ratio", "2.0" }).IsArgValid());
+    }
+    // negative bounds and a negative value (exercises both features together)
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("t", "temp", 1)
+            .SetRequired(false).SetRange(-40, 50));
+        auto o = p.ParseArgs(std::vector<std::string>{ "--temp", "-10" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetArg("temp").GetAsInt() == -10);
+    }
+}
+
+// --- Standard validators: range shorthand, sign, pattern, CI choices --------
+
+static void test_range_shorthand_and_signs()
+{
+    // SetRange(max) == [0, max]
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("a", "num", 1)
+                .SetRequired(false).SetRange(10));
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--num", "5" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--num", "15" }).IsArgValid());
+    }
+    // SetPositive: > 0
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("b", "cnt", 1,
+                argparse::ArgTypeCast::e_int, false).SetPositive());
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--cnt", "5" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--cnt", "0" }).IsArgValid());
+    }
+    // SetNonNegative: >= 0 (negative value reaches the validator and is rejected)
+    {
+        auto make = []{
+            auto p = argparse::ArgumentParser("prog");
+            p.AddArgument(argparse::CreateNamedArgument("c", "lvl", 1,
+                argparse::ArgTypeCast::e_double, false).SetNonNegative());
+            return p;
+        };
+        CHECK(make().ParseArgs(std::vector<std::string>{ "--lvl", "0" }).IsArgValid());
+        CHECK(!make().ParseArgs(std::vector<std::string>{ "--lvl", "-1" }).IsArgValid());
+    }
+}
+
+static void test_pattern_validator()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("e", "email", 1)
+            .SetRequired(false).SetPattern(R"(^[^@]+@[^@]+\.[^@]+$)"));
+        return p;
+    };
+    CHECK(make().ParseArgs(std::vector<std::string>{ "--email", "a@b.com" }).IsArgValid());
+    CHECK(!make().ParseArgs(std::vector<std::string>{ "--email", "nope" }).IsArgValid());
+}
+
+static void test_choices_case_insensitive()
+{
+    auto make = []{
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("m", "mode", 1)
+            .SetRequired(false).SetChoices({ "On", "Off" }, true));
+        return p;
+    };
+    CHECK(make().ParseArgs(std::vector<std::string>{ "--mode", "on" }).IsArgValid());
+    CHECK(make().ParseArgs(std::vector<std::string>{ "--mode", "OFF" }).IsArgValid());
+    CHECK(!make().ParseArgs(std::vector<std::string>{ "--mode", "maybe" }).IsArgValid());
+}
+
+#ifdef ARGPARSE_HAS_FILESYSTEM
+static void test_filesystem_validators()
+{
+    const std::string tmp = "argparse_fs_test.tmp";
+    { std::ofstream(tmp) << "x"; }   // create a real file
+
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("f", "file", 1)
+            .SetRequired(false).SetExistingFile());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "--file", tmp }).IsArgValid());
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "--file", "no_such_file_xyz" }).IsArgValid());
+    }
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("d", "dir", 1)
+            .SetRequired(false).SetExistingDirectory());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "--dir", "." }).IsArgValid());
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "--dir", tmp }).IsArgValid());  // a file, not dir
+    }
+    {
+        auto p = argparse::ArgumentParser("prog");
+        p.AddArgument(argparse::CreateNamedArgument("n", "np", 1)
+            .SetRequired(false).SetNonexistentPath());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "--np", "no_such_path_xyz" }).IsArgValid());
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "--np", tmp }).IsArgValid());
+    }
+
+    std::remove(tmp.c_str());
+}
+#endif
+
+// --- Ergonomic shortcuts: spec overload, char names, by-name getters --------
+
+// A short name may be given as a char as well as a string.
+static void test_char_short_name()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument(argparse::CreateNamedArgument('n', "num", 1,
+        argparse::ArgTypeCast::e_int, false));
+    p.AddArgument(argparse::CreateNamedArgument("s", "str", 1,
+        argparse::ArgTypeCast::e_String, false));   // string form still works
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "-n", "7", "--str", "hi" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetArg("num").GetAsInt() == 7);
+    CHECK(o.GetArg("str").GetAsString() == "hi");
+}
+
+// GetAsX(name) is shorthand for GetArg(name).GetAsX() -- every scalar form.
+static void test_by_name_getters_scalar()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument(argparse::CreateNamedArgument("s", "str", 1,
+        argparse::ArgTypeCast::e_String, false));
+    p.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+        argparse::ArgTypeCast::e_int, false));
+    p.AddArgument(argparse::CreateNamedArgument("l", "big", 1,
+        argparse::ArgTypeCast::e_longlong, false));
+    p.AddArgument(argparse::CreateNamedArgument("d", "ratio", 1,
+        argparse::ArgTypeCast::e_double, false));
+    p.AddArgument(argparse::CreateNamedArgument("b", "flag", 1,
+        argparse::ArgTypeCast::e_bool, false));
+
+    auto o = p.ParseArgs(std::vector<std::string>{
+        "--str", "hi", "--num", "3", "--big", "9000000000",
+        "--ratio", "1.5", "--flag", "true" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsString("str") == "hi");
+    CHECK(o.GetAsInt("num") == 3);
+    CHECK(o.GetAsLongLong("big") == 9000000000LL);
+    CHECK(o.GetAsDouble("ratio") == 1.5);
+    CHECK(o.GetAsBool("flag") == true);
+    // identical to the long form
+    CHECK(o.GetAsString("str") == o.GetArg("str").GetAsString());
+    CHECK(o.GetAsInt("num") == o.GetArg("num").GetAsInt());
+}
+
+// ... and every vector form.
+static void test_by_name_getters_vector()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument(argparse::CreateNamedArgument("s", "strs", '+',
+        argparse::ArgTypeCast::e_String, false));
+    p.AddArgument(argparse::CreateNamedArgument("n", "nums", '+',
+        argparse::ArgTypeCast::e_int, false));
+    p.AddArgument(argparse::CreateNamedArgument("l", "bigs", '+',
+        argparse::ArgTypeCast::e_longlong, false));
+    p.AddArgument(argparse::CreateNamedArgument("d", "dbls", '+',
+        argparse::ArgTypeCast::e_double, false));
+    p.AddArgument(argparse::CreateNamedArgument("b", "bools", '+',
+        argparse::ArgTypeCast::e_bool, false));
+
+    auto o = p.ParseArgs(std::vector<std::string>{
+        "--strs", "a", "b", "--nums", "1", "2", "--bigs", "9000000000",
+        "--dbls", "1.5", "2.5", "--bools", "true", "false" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsVecString("strs").size() == 2);
+    CHECK(o.GetAsVecInt("nums").size() == 2);
+    CHECK(o.GetAsVecInt("nums").at(1) == 2);
+    CHECK(o.GetAsVecLongLong("bigs").at(0) == 9000000000LL);
+    CHECK(o.GetAsVecDouble("dbls").at(1) == 2.5);
+    CHECK(o.GetAsVecBool("bools").size() == 2);
+    CHECK(o.GetAsVecBool("bools").at(0) == true);
+}
+
+// ParserSpec configures the parser without a fluent chain (aggregate form,
+// works in every standard).
+static void test_parser_spec_aggregate()
+{
+    argparse::ParserSpec spec;
+    spec.name = "tool";
+    spec.description = "the description";
+    spec.epilogue = "the epilogue";
+    spec.allowAbbrev = false;
+    spec.ignoreUnknownArgs = true;
+
+    argparse::ArgumentParser p(spec);
+    p.AddArgument(argparse::CreatePositionalArgument("x").SetRequired(false));
+
+    const std::string help = p.GetHelp(80);
+    CHECK(help.find("the description") != std::string::npos);
+    CHECK(help.find("the epilogue") != std::string::npos);
+
+    // ignoreUnknownArgs from the spec took effect
+    auto o = p.ParseArgs(std::vector<std::string>{ "v", "--bogus" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsString("x") == "v");
+}
+
+// The remaining ParserSpec fields each take effect: usage, prefixChars,
+// addHelp and allowAbbrev.
+static void test_parser_spec_remaining_fields()
+{
+    // usage overrides the generated usage line
+    {
+        argparse::ParserSpec s;
+        s.name = "t";
+        s.usage = "MY CUSTOM USAGE";
+        argparse::ArgumentParser p(s);
+        CHECK(p.GetHelp(80).find("MY CUSTOM USAGE") != std::string::npos);
+    }
+    // prefixChars changes the option prefix
+    {
+        argparse::ParserSpec s;
+        s.name = "t";
+        s.prefixChars = '+';
+        argparse::ArgumentParser p(s);
+        p.AddArgument(argparse::CreateNamedArgument("n", "num", 1,
+            argparse::ArgTypeCast::e_int, false));
+        auto o = p.ParseArgs(std::vector<std::string>{ "++num", "5" });
+        CHECK(o.IsArgValid());
+        CHECK(o.GetAsInt("num") == 5);
+    }
+    // addHelp = false removes the automatic -h/--help option.
+    // Note: the help option is registered during ParseArgs, so parse first.
+    {
+        argparse::ParserSpec s;
+        s.name = "t";
+        s.addHelp = false;
+        argparse::ArgumentParser p(s);
+        p.ParseArgs(std::vector<std::string>{});
+        CHECK(p.GetHelp(80).find("--help") == std::string::npos);
+
+        argparse::ParserSpec s2;
+        s2.name = "t";                       // default addHelp = true
+        argparse::ArgumentParser p2(s2);
+        p2.ParseArgs(std::vector<std::string>{});
+        CHECK(p2.GetHelp(80).find("--help") != std::string::npos);
+    }
+    // allowAbbrev = false rejects an abbreviated long option
+    {
+        argparse::ParserSpec s;
+        s.name = "t";
+        s.allowAbbrev = false;
+        argparse::ArgumentParser p(s);
+        p.AddArgument(argparse::CreateNamedArgument("", "verbose", 1,
+            argparse::ArgTypeCast::e_String, false));
+        CHECK(!p.ParseArgs(std::vector<std::string>{ "--verb", "x" }).IsArgValid());
+        CHECK(p.ParseArgs(std::vector<std::string>{ "--verbose", "x" }).IsArgValid());
+    }
+}
+
+// The string constructor still works and is unambiguous alongside ParserSpec.
+static void test_parser_string_ctor_still_works()
+{
+    auto a = argparse::ArgumentParser("plain");
+    std::string name = "fromstring";
+    auto b = argparse::ArgumentParser(name);
+    auto c = argparse::ArgumentParser("chained").SetDescription("d");
+    CHECK(c.GetHelp(80).find("d") != std::string::npos);
+    (void)a; (void)b;
+}
+
+// A char short name also works through the fluent setters.
+static void test_char_name_setters()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument(argparse::CreateNamedArgument()
+        .SetShortName('n').SetLongName("num")
+        .SetType(argparse::ArgTypeCast::e_int).SetRequired(false));
+    p.AddArgument(argparse::CreatePositionalArgument().SetPositionalName("path")
+        .SetRequired(false));
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "f.txt", "-n", "7" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsInt("num") == 7);
+    CHECK(o.GetAsString("path") == "f.txt");
+}
+
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
+// AddArgument takes a spec directly, with a char short name.
+static void test_add_argument_spec_overload()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument({.shortName = 'f', .longName = "file", .required = false});
+    p.AddArgument(argparse::PositionalArgSpec{.name = "rest", .nargs = '*', .required = false});
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "--file", "x.txt", "a", "b" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsString("file") == "x.txt");
+    CHECK(o.GetAsVecString("rest").size() == 2);
+    // the char short name resolves too
+    auto o2 = p.ParseArgs(std::vector<std::string>{ "-f", "y.txt" });
+    CHECK(o2.IsArgValid());
+    CHECK(o2.GetAsString("file") == "y.txt");
+}
+
+// Keyword-style parser construction with designated initializers.
+static void test_parser_spec_designated_cpp20()
+{
+    auto p = argparse::ArgumentParser({
+        .name = "cptool",
+        .description = "Copy files",
+        .epilogue = "See docs",
+        .allowAbbrev = false,
+        .ignoreUnknownArgs = true});
+    p.AddArgument({.name = "source"});
+
+    const std::string help = p.GetHelp(80);
+    CHECK(help.find("Copy files") != std::string::npos);
+    CHECK(help.find("See docs") != std::string::npos);
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "a.txt", "--unknown" });
+    CHECK(o.IsArgValid());                       // ignoreUnknownArgs from spec
+    CHECK(o.GetAsString("source") == "a.txt");
+}
+
+// Bare braces pick the right spec: .name is unique to PositionalArgSpec and
+// .shortName/.longName to NamedArgSpec, so no type name is needed.
+static void test_bare_brace_spec_disambiguation()
+{
+    auto p = argparse::ArgumentParser("prog");
+    p.AddArgument({.name = "source", .help = "src"});
+    p.AddArgument({.name = "count", .type = argparse::ArgTypeCast::e_int});
+    p.AddArgument({.name = "extras", .nargs = '*', .required = false});
+    p.AddArgument({.shortName = 'v', .longName = "verbose", .nargs = 0, .required = false});
+
+    auto o = p.ParseArgs(std::vector<std::string>{ "a.txt", "3", "x.txt", "-v" });
+    CHECK(o.IsArgValid());
+    CHECK(o.GetAsString("source") == "a.txt");
+    CHECK(o.GetAsInt("count") == 3);
+    CHECK(o.GetAsVecString("extras").size() == 1);
+    CHECK(o.GetArg("verbose").GetArgumentExists());
+}
+#endif
+
 int main()
 {
     RUN(test_named_int_vector);
@@ -724,6 +1415,7 @@ int main()
     RUN(test_spec_struct_named_and_positional);
 #if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
     RUN(test_designated_initializers_cpp20);
+    RUN(test_char_nargs_in_spec_cpp20);
 #endif
     RUN(test_bind_scalar_values);
     RUN(test_bind_infers_type);
@@ -731,6 +1423,40 @@ int main()
     RUN(test_bind_absent_optional_untouched);
     RUN(test_bind_positional);
     RUN(test_bind_not_applied_on_parse_failure);
+    RUN(test_positional_star_counts);
+    RUN(test_positional_plus_counts);
+    RUN(test_positional_fixed_then_variable);
+    RUN(test_positional_too_many);
+    RUN(test_option_positional_ordering);
+    RUN(test_option_does_not_overconsume);
+    RUN(test_positional_optional_single);
+    RUN(test_fixed_then_optional_single);
+    RUN(test_named_optional_single);
+    RUN(test_char_nargs_input);
+    RUN(test_validator_custom_message);
+    RUN(test_validator_default_message);
+    RUN(test_validator_numeric);
+    RUN(test_validator_positional_each);
+    RUN(test_negative_number_values);
+    RUN(test_set_range);
+    RUN(test_range_shorthand_and_signs);
+    RUN(test_pattern_validator);
+    RUN(test_choices_case_insensitive);
+#ifdef ARGPARSE_HAS_FILESYSTEM
+    RUN(test_filesystem_validators);
+#endif
+    RUN(test_char_short_name);
+    RUN(test_char_name_setters);
+    RUN(test_parser_spec_aggregate);
+    RUN(test_parser_spec_remaining_fields);
+    RUN(test_parser_string_ctor_still_works);
+    RUN(test_by_name_getters_scalar);
+    RUN(test_by_name_getters_vector);
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
+    RUN(test_add_argument_spec_overload);
+    RUN(test_bare_brace_spec_disambiguation);
+    RUN(test_parser_spec_designated_cpp20);
+#endif
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks
               << " checks passed." << std::endl;
