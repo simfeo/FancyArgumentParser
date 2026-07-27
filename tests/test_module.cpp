@@ -4,11 +4,15 @@
 // it exercises the same public API as the header tests but reaches it through
 // `import argparse;` instead of `#include "argparse.h"`.
 
-import argparse;
-
+// Standard headers must be included before the module import: on newer MSVC
+// (VS 18 / 14.51+) importing a module whose global module fragment already
+// pulled in these std headers and then #including them again triggers C2572
+// "redefinition of default argument". Includes-before-import avoids it.
 #include <vector>
 #include <string>
 #include <iostream>
+
+import argparse;
 
 static int failures = 0;
 
