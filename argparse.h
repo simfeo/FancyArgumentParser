@@ -59,14 +59,21 @@ SOFTWARE.
 /// By default is namespace name is "argparse"
 namespace ARGPARSE_NAMESPACE_NAME
 {
-    /// @brief anonymous namespace for internal usage
-    namespace 
+    /// @brief internal helpers. A named, inline namespace (rather than an
+    /// anonymous one) so the symbols have external linkage and get emitted in
+    /// module consumers; inline keeps #include across multiple TUs valid.
+#ifdef __cpp_inline_variables
+#define ARGPARSE_DETAIL_CONST inline constexpr
+#else
+#define ARGPARSE_DETAIL_CONST const
+#endif
+    namespace detail
     {
-        const size_t kSizeTypeEnd = static_cast<size_t>(-1);
-        const size_t kHelpWidth = 80;
-        const size_t kHelpNameWidthPercent = 30;
+        ARGPARSE_DETAIL_CONST size_t kSizeTypeEnd = static_cast<size_t>(-1);
+        ARGPARSE_DETAIL_CONST size_t kHelpWidth = 80;
+        ARGPARSE_DETAIL_CONST size_t kHelpNameWidthPercent = 30;
 
-        bool iEquals(const std::string& a, const std::string& b)
+        inline bool iEquals(const std::string& a, const std::string& b)
         {
             if (a.size() != b.size())
             {
@@ -83,7 +90,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             return true;
         }
 
-        bool isNumber(const std::string& inStr)
+        inline bool isNumber(const std::string& inStr)
         {
             const bool hasNegSign = inStr.at(0) == '-';
             size_t dotPos = 0, expPos = 0;
@@ -117,12 +124,14 @@ namespace ARGPARSE_NAMESPACE_NAME
             return true;
         }
 
-        size_t getStringStreamLength(std::stringstream& showDesc)
+        inline size_t getStringStreamLength(std::stringstream& showDesc)
         {
             showDesc.seekp(0, std::ios::end);
             return showDesc.tellp();
         }
     }
+    using namespace detail;
+#undef ARGPARSE_DETAIL_CONST
 
 
     /// @brief Supported types for argument
@@ -136,15 +145,24 @@ namespace ARGPARSE_NAMESPACE_NAME
         e_bool
     };
 
+    // inline (external linkage) where available so the module wrapper can
+    // export them; plain const (internal linkage) otherwise. Behaviour for
+    // #include users is identical.
+#ifdef __cpp_inline_variables
+#define ARGPARSE_CONST inline constexpr
+#else
+#define ARGPARSE_CONST const
+#endif
     /// @brief constant to indicate arguments with various
     /// count from 0 to infinite
-    const int kAnyArgCount = -1;
+    ARGPARSE_CONST int kAnyArgCount = -1;
     /// @brief constant to indicate arguments with various
     /// count from 1 to infinite
-    const int kFromOneToInfiniteArgCount = -2;
+    ARGPARSE_CONST int kFromOneToInfiniteArgCount = -2;
     /// @brief constant to indicate an argument that takes zero or one value
     /// (Python's nargs='?').
-    const int kZeroOrOneArgCount = -3;
+    ARGPARSE_CONST int kZeroOrOneArgCount = -3;
+#undef ARGPARSE_CONST
 
     /// @brief Argument count value. Accepts either an integer (an exact count,
     /// or one of the k...ArgCount constants) or a Python-style character:

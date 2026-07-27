@@ -5,7 +5,8 @@
 **A single-header, dependency-free C++ command-line argument parser.**
 
 Argparse-style ergonomics for C++ — named & positional arguments, type casting,
-choices, defaults, auto-generated help, and Python-like keyword arguments in C++20.
+choices, value validators, defaults, auto-generated help, and Python-like
+keyword arguments in C++20.
 
 [![tests](https://github.com/simfeo/FancyArgumentParser/actions/workflows/tests.yml/badge.svg)](https://github.com/simfeo/FancyArgumentParser/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
@@ -28,12 +29,17 @@ submodules, no CMake packages, no linking. Everything lives in `argparse.h`.
 ## Features
 
 - 🧩 **Single header, zero dependencies** — just `#include "argparse.h"`.
-- 🏷️ **Named and positional arguments**, freely mixed.
+- 📦 **C++20 module** — optional `import argparse;` via `argparse.ixx`.
+- 🏷️ **Named and positional arguments**, freely mixed in any order.
 - 🔢 **Typed values** — `int`, `long long`, `double`, `bool`, and `string`.
-- 🎚️ **Flexible arity** — fixed counts, `kAnyArgCount` (zero-or-more),
-  `kFromOneToInfiniteArgCount` (one-or-more), or flags (zero values).
-- ✅ **Validation** — required/optional, value `choices`, and defaults.
+- 🎚️ **Flexible arity** — fixed counts, or Python-style `'?'` (zero-or-one),
+  `'*'` (zero-or-more) and `'+'` (one-or-more), plus the matching
+  `kZeroOrOneArgCount` / `kAnyArgCount` / `kFromOneToInfiniteArgCount` constants.
+- ✅ **Validation** — required/optional, value `choices`, numeric `SetRange`,
+  `SetPositive`, filesystem checks (`SetExistingFile`), and custom
+  `SetValidator` predicates.
 - 🔗 **Variable binding** — `BindTo(&var)` writes parsed values straight into your own variables.
+- 🎯 **By-name getters** — `obj.GetAsInt("count")` straight off the parsed result.
 - 📖 **Auto-generated help & usage**, with custom epilogue and overridable usage line.
 - 🔤 **Long-option abbreviations** (`--verb` → `--verbose` when unambiguous).
 - ⚙️ **Configurable** — custom prefix characters, ignore-unknown args, custom namespace.
@@ -104,6 +110,18 @@ parser.AddArgument(argparse::CreateNamedArgument({
 > **Note:** every argument is **required by default** — call `SetRequired(false)`
 > (or set `required = false`) to make one optional.
 
+Short names may be written as a single **char** (`'n'`) as well as a string
+(`"n"`), and arity accepts a Python-style **char** in place of a constant:
+
+```cpp
+// 'c' short name, '?' == zero-or-one value (same as kZeroOrOneArgCount)
+parser.AddArgument(argparse::CreateNamedArgument('c', "count", '?')
+    .SetType(argparse::ArgTypeCast::e_int).SetDefault(1));
+
+// '+' == one-or-more, '*' == zero-or-more
+parser.AddArgument(argparse::CreatePositionalArgument("files", '+'));
+```
+
 ## Binding values to variables
 
 Instead of pulling each value out with `GetArg(name).GetAsX()`, you can bind an
@@ -139,6 +157,108 @@ onward.
   is left untouched — so its initial value acts as the default.
 - Bindings are applied **only on a successful parse**; a failed parse never
   writes through them.
+
+## Validating values
+
+Beyond `choices`, an argument can carry a validator that each parsed value must
+pass; a failing value makes `ParseArgs` return an invalid result with a message.
+
+```cpp
+// Numeric range (also sets the type for you)
+parser.AddArgument(argparse::CreateNamedArgument('p', "port")
+    .SetRange(1, 65535));
+
+// Strictly positive
+parser.AddArgument(argparse::CreateNamedArgument('r', "ratio")
+    .SetType(argparse::ArgTypeCast::e_double).SetPositive());
+
+// Filesystem checks (available when <filesystem> is, i.e. C++17+)
+parser.AddArgument(argparse::CreateNamedArgument('i', "input")
+    .SetExistingFile());
+
+// Any custom predicate, with an optional error message
+parser.AddArgument(argparse::CreateNamedArgument('m', "mode")
+    .SetValidator([](const std::string& v){ return v == "fast" || v == "safe"; },
+                  "mode must be 'fast' or 'safe'"));
+```
+
+Built-in validators include `SetRange` (int / long long / double, as `(lo, hi)`
+or `(max)`), `SetPositive`, `SetNonNegative`, and the path checks
+`SetExistingFile`, `SetExistingDirectory`, `SetExistingPath`,
+`SetNonexistentPath`.
+
+## Mixing positional and named arguments
+
+Positional and named arguments can be declared and passed in any order — the
+parser assigns bare values to positionals left to right while pulling named
+options out of the stream.
+
+```cpp
+auto parser = argparse::ArgumentParser("cp");
+parser.AddArgument(argparse::CreatePositionalArgument("src"));
+parser.AddArgument(argparse::CreatePositionalArgument("dst"));
+parser.AddArgument(argparse::CreateNamedArgument('f', "force",
+    0, argparse::ArgTypeCast::e_bool, false));   // a flag
+
+// all equivalent:  a b --force  |  --force a b  |  a --force b
+auto obj = parser.ParseArgs(std::vector<std::string>{ "a", "--force", "b" });
+std::string src = obj.GetAsString("src");   // "a"
+std::string dst = obj.GetAsString("dst");   // "b"
+```
+
+## Reading results by name
+
+After a successful parse you can read values straight off the result by
+argument name, without going through `GetArg(...)` first:
+
+```cpp
+int                       n     = obj.GetAsInt("count");
+double                    ratio = obj.GetAsDouble("ratio");
+std::string               name  = obj.GetAsString("name");
+const std::vector<int>&   nums  = obj.GetAsVecInt("numbers");
+```
+
+The longer `obj.GetArg("count").GetAsInt()` form still works and is handy when
+you want to inspect the `Argument` itself (e.g. `GetArgumentExists()`).
+
+## Configuring the parser
+
+`ArgumentParser` can be built from a `ParserSpec` aggregate, which collects the
+parser-level options in one place (the counterpart of the keyword-style argument
+specs):
+
+```cpp
+auto parser = argparse::ArgumentParser(argparse::ParserSpec{
+    .name        = "cptool",
+    .description = "Copy files",
+    .prefixChars = '-',
+    .addHelp     = true,
+    .allowAbbrev = false});
+```
+
+The designated-initializer form needs C++20; the same struct also works with
+ordinary aggregate initialization in C++11/14/17.
+
+## Using it as a C++20 module
+
+On toolchains that support C++20 modules (MSVC, GCC ≥ 14) you can consume the
+library through `import` instead of `#include`:
+
+```cpp
+import argparse;
+
+int main(int argc, char** argv)
+{
+    argparse::ArgumentParser parser("demo");
+    // ... same API as the header ...
+}
+```
+
+Add `argparse.ixx` to your build as a module interface unit; it wraps
+`argparse.h` and re-exports the public API. The header remains fully usable on
+its own, so nothing changes for `#include` users. Define
+`ARGPARSE_NAMESPACE_NAME` when building the module to rename the exported
+namespace, exactly as with the header.
 
 ## Requirements
 
