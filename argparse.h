@@ -232,7 +232,10 @@ namespace ARGPARSE_NAMESPACE_NAME
             const int argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
-            const std::string& help = "")
+            const std::string& help = "",
+            std::function<bool(const std::string&)> predicate = nullptr,
+            const std::string& validatorMessage = ""
+        )
             : m_required(required)
             , m_nargs(argsCount)
             , m_type(argType)
@@ -240,6 +243,8 @@ namespace ARGPARSE_NAMESPACE_NAME
             , m_shortName(shortName)
             , m_longName(longName)
             , m_help(help)
+            , m_validator(predicate)
+			, m_validatorMessage("")
         {}
     public:
 
@@ -255,9 +260,11 @@ namespace ARGPARSE_NAMESPACE_NAME
             NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
-            const std::string& help = "")
+            const std::string& help = "",
+            std::function<bool(const std::string&)> predicate = nullptr,
+            const std::string& validatorMessage = "")
         {
-            return Argument("", shortName, longName, argsCount, argType, required, help);
+            return Argument("", shortName, longName, argsCount, argType, required, help, predicate, validatorMessage);
         }
 
         /// @brief Default function for named arguments. You can use class Setters or pass your own values to public members directly.
@@ -270,9 +277,11 @@ namespace ARGPARSE_NAMESPACE_NAME
             NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
             const bool required = true,
-            const std::string& help = "")
+            const std::string& help = "",
+            std::function<bool(const std::string&)> predicate = nullptr,
+            const std::string& validatorMessage = "")
         {
-            return Argument(positionalName, "", "", argsCount, argType, required, help);
+            return Argument(positionalName, "", "", argsCount, argType, required, help, predicate, validatorMessage);
         }
 
         /// @brief required flag argument
@@ -887,10 +896,13 @@ namespace ARGPARSE_NAMESPACE_NAME
         NArgs argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
-        const std::string& help = "")
+        const std::string& help = "",
+        std::function<bool(const std::string&)> predicate = nullptr,
+        const std::string& validatorMessage = "")
     {
-        return Argument::CreatePositionalArgument(positionalName, argsCount, argType, required, help);
+        return Argument::CreatePositionalArgument(positionalName, argsCount, argType, required, help, predicate, validatorMessage);
     }
+
 
     /// @brief Aggregate description of a named argument, for keyword-style
     /// construction. Because it is a plain aggregate, C++20 designated
@@ -901,7 +913,9 @@ namespace ARGPARSE_NAMESPACE_NAME
     ///       .nargs    = argparse::kFromOneToInfiniteArgCount,
     ///       .type     = argparse::ArgTypeCast::e_int,
     ///       .required = false,
-    ///       .help     = "some numbers"}));
+    ///       .help     = "some numbers",
+    ///       .validator = [](const std::string&)->bool{ return false; },
+    ///       .validator_message = "wrong input for numbers"));
     /// @endcode
     /// The same struct also works with ordinary aggregate init in C++11/14/17.
     struct NamedArgSpec
@@ -912,6 +926,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         ArgTypeCast type = ArgTypeCast::e_String;
         bool required = true;
         std::string help = "";
+        std::function<bool(const std::string&)> validator = nullptr;
+        std::string validator_message = "";
     };
 
     /// @brief Keyword-style factory for a named argument. See NamedArgSpec.
@@ -920,7 +936,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     inline Argument CreateNamedArgument(const NamedArgSpec& spec)
     {
         return Argument::CreateNamedArgument(spec.shortName, spec.longName,
-            spec.nargs, spec.type, spec.required, spec.help);
+            spec.nargs, spec.type, spec.required, spec.help, spec.validator, spec.validator_message);
     }
 
     /// @brief Aggregate description of a positional argument, for keyword-style
@@ -932,6 +948,8 @@ namespace ARGPARSE_NAMESPACE_NAME
         ArgTypeCast type = ArgTypeCast::e_String;
         bool required = true;
         std::string help = "";
+        std::function<bool(const std::string&)> validator = nullptr;
+        std::string validator_message = "";
     };
 
     /// @brief Keyword-style factory for a positional argument. See PositionalArgSpec.
@@ -940,7 +958,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     inline Argument CreatePositionalArgument(const PositionalArgSpec& spec)
     {
         return Argument::CreatePositionalArgument(spec.name, spec.nargs,
-            spec.type, spec.required, spec.help);
+            spec.type, spec.required, spec.help, spec.validator, spec.validator_message);
     }
 
     /// @brief Class which represent actual parsed argument in case of successfully parsing
@@ -2171,6 +2189,23 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @return ArgumentsObject, which contains valid ArgumentParsed if parsing successful or
         /// information about errors if not
         ArgumentsObject ParseArgs(const int argc, char** argv)
+        {
+
+            std::vector<std::string> args;
+            for (int i = 1; i < argc; ++i)
+            {
+                args.emplace_back(argv[i]);
+            }
+
+            return ParseArgs(args);
+        }
+
+        /// @brief This function just converts argc and argv to vector of token
+        /// @param argc count of arguments
+        /// @param argv pointer to array of const char*
+        /// @return ArgumentsObject, which contains valid ArgumentParsed if parsing successful or
+        /// information about errors if not
+        ArgumentsObject ParseArgs(const int argc, const char** argv)
         {
 
             std::vector<std::string> args;
