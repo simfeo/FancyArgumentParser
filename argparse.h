@@ -2170,7 +2170,7 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argv pointer to array of char*
         /// @return ArgumentsObject, which contains valid ArgumentParsed if parsing successful or
         /// information about errors if not
-        ArgumentsObject ParseArgs(const int argc, const char** argv)
+        ArgumentsObject ParseArgs(const int argc, char** argv)
         {
 
             std::vector<std::string> args;
