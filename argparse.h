@@ -226,6 +226,10 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
+        /// @param predicate Optional value validator: returns true for an accepted
+        /// value token; nullptr (the default) installs no validator.
+        /// @param validatorMessage Error text used when @p predicate rejects a value
+        /// ("" uses a generated default message).
         Argument(const std::string& positionalName = "",
             const std::string& shortName = "",
             const std::string& longName = "",
@@ -244,7 +248,7 @@ namespace ARGPARSE_NAMESPACE_NAME
             , m_longName(longName)
             , m_help(help)
             , m_validator(predicate)
-			, m_validatorMessage("")
+            , m_validatorMessage(validatorMessage)
         {}
     public:
 
@@ -255,6 +259,10 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
+        /// @param predicate Optional value validator: returns true for an accepted
+        /// value token; nullptr (the default) installs no validator.
+        /// @param validatorMessage Error text used when @p predicate rejects a value
+        /// ("" uses a generated default message).
         static Argument CreateNamedArgument(const ArgName& shortName = "",
             const ArgName& longName = "",
             NArgs argsCount = 1,
@@ -273,6 +281,10 @@ namespace ARGPARSE_NAMESPACE_NAME
         /// @param argType type of argument. Defined via enum. Supported types are: int, long long, double and bool and string for all other cases.
         /// @param required Is argument required. Will fail parsing, if required argument are not present.
         /// @param help Your own custom help string start.
+        /// @param predicate Optional value validator: returns true for an accepted
+        /// value token; nullptr (the default) installs no validator.
+        /// @param validatorMessage Error text used when @p predicate rejects a value
+        /// ("" uses a generated default message).
         static Argument CreatePositionalArgument(const ArgName& positionalName = "",
             NArgs argsCount = 1,
             ArgTypeCast argType = ArgTypeCast::e_String,
@@ -870,6 +882,10 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @param argType e_String, e_int, e_longlong, e_double, e_bool
     /// @param required Marker if argument should be passed or ignored if missed.
     /// @param help Initial part of help for current argument in case of auto-generated help.
+    /// @param predicate Optional value validator: returns true for an accepted
+    /// value token; nullptr (the default) installs no validator.
+    /// @param validatorMessage Error text used when @p predicate rejects a value
+    /// ("" uses a generated default message).
     /// @return instance of Argument
     /// @note inline: this is a free function in a header, so it must have
     /// inline linkage to be safely included in more than one translation unit.
@@ -878,9 +894,11 @@ namespace ARGPARSE_NAMESPACE_NAME
         NArgs argsCount = 1,
         ArgTypeCast argType = ArgTypeCast::e_String,
         const bool required = true,
-        const std::string& help = "")
+        const std::string& help = "",
+        std::function<bool(const std::string&)> predicate = nullptr,
+        const std::string& validatorMessage = "")
     {
-        return Argument::CreateNamedArgument(shortName, longName, argsCount, argType, required, help);
+        return Argument::CreateNamedArgument(shortName, longName, argsCount, argType, required, help, predicate, validatorMessage);
     }
 
     /// @brief Helper function to create positional argument
@@ -890,6 +908,10 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @param argType e_String, e_int, e_longlong, e_double, e_bool
     /// @param required Marker if argument should be passed or ignored if missed.
     /// @param help Initial part of help for current argument in case of auto-generated help.
+    /// @param predicate Optional value validator: returns true for an accepted
+    /// value token; nullptr (the default) installs no validator.
+    /// @param validatorMessage Error text used when @p predicate rejects a value
+    /// ("" uses a generated default message).
     /// @return instance of Argument
     /// @note inline: see CreateNamedArgument -- required for multi-TU inclusion.
     inline Argument CreatePositionalArgument(const ArgName& positionalName = "",
@@ -915,7 +937,7 @@ namespace ARGPARSE_NAMESPACE_NAME
     ///       .required = false,
     ///       .help     = "some numbers",
     ///       .validator = [](const std::string&)->bool{ return false; },
-    ///       .validator_message = "wrong input for numbers"));
+    ///       .validator_message = "wrong input for numbers"}));
     /// @endcode
     /// The same struct also works with ordinary aggregate init in C++11/14/17.
     struct NamedArgSpec

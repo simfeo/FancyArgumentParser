@@ -1376,6 +1376,44 @@ static void test_bare_brace_spec_disambiguation()
 }
 #endif
 
+// The validator predicate AND its custom message must survive when passed
+// through the factory functions (not only via SetValidator).
+static void test_validator_message_via_factory()
+{
+    // Named factory carries predicate + message.
+    auto p1 = argparse::ArgumentParser("prog");
+    p1.AddArgument(argparse::CreateNamedArgument("f", "file", 1,
+        argparse::ArgTypeCast::e_String, false, "a file",
+        [](const std::string& s) { return !s.empty() && s[0] == '/'; },
+        "file must be absolute"));
+    auto bad1 = p1.ParseArgs(std::vector<std::string>{ "--file", "rel" });
+    CHECK(!bad1.IsArgValid());
+    CHECK(bad1.GetErrorString() == "file must be absolute");
+
+    // Positional factory carries predicate + message too.
+    auto p2 = argparse::ArgumentParser("prog");
+    p2.AddArgument(argparse::CreatePositionalArgument("name", 1,
+        argparse::ArgTypeCast::e_String, true, "a name",
+        [](const std::string& s) { return s == "ok"; },
+        "name must be 'ok'"));
+    auto bad2 = p2.ParseArgs(std::vector<std::string>{ "nope" });
+    CHECK(!bad2.IsArgValid());
+    CHECK(bad2.GetErrorString() == "name must be 'ok'");
+}
+
+// The argc / const char** overload builds the same result as the vector form.
+static void test_parse_args_const_char_ptr()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument("n", "name", 1));
+
+    const char* argv[] = { "prog", "--name", "conan" };
+    const int argc = 3;
+    auto obj = parser.ParseArgs(argc, argv);
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetAsString("name") == "conan");
+}
+
 int main()
 {
     RUN(test_named_int_vector);
@@ -1452,6 +1490,8 @@ int main()
     RUN(test_parser_string_ctor_still_works);
     RUN(test_by_name_getters_scalar);
     RUN(test_by_name_getters_vector);
+    RUN(test_validator_message_via_factory);
+    RUN(test_parse_args_const_char_ptr);
 #if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
     RUN(test_add_argument_spec_overload);
     RUN(test_bare_brace_spec_disambiguation);
