@@ -567,6 +567,78 @@ static void test_spec_struct_named_and_positional()
     CHECK(obj.GetArg("nums").GetAsVecInt().size() == 2);
 }
 
+// The choices and pattern spec fields restrict values; string choices go to the
+// string overload, numeric choices are parsed to the argument's type. Works in
+// every standard via ordinary aggregate assignment.
+static void test_spec_choices_and_pattern()
+{
+    auto parser = argparse::ArgumentParser("prog");
+
+    argparse::NamedArgSpec op;
+    op.shortName = "o"; op.longName = "op"; op.required = false;
+    op.choices = std::vector<std::string>{ "+", "-", "*", "/" };
+    parser.AddArgument(argparse::CreateNamedArgument(op));
+
+    argparse::NamedArgSpec port;
+    port.longName = "port"; port.type = argparse::ArgTypeCast::e_int; port.required = false;
+    port.choices = std::vector<std::string>{ "80", "443" };
+    parser.AddArgument(argparse::CreateNamedArgument(port));
+
+    argparse::NamedArgSpec mode;
+    mode.longName = "mode"; mode.required = false; mode.pattern = "fast|safe";
+    parser.AddArgument(argparse::CreateNamedArgument(mode));
+
+    CHECK(parser.ParseArgs(std::vector<std::string>{ "--op", "+", "--port", "443", "--mode", "fast" }).IsArgValid());
+    CHECK(!parser.ParseArgs(std::vector<std::string>{ "--op", "%" }).IsArgValid());   // not in string choices
+    CHECK(!parser.ParseArgs(std::vector<std::string>{ "--port", "22" }).IsArgValid()); // not in int choices
+    CHECK(!parser.ParseArgs(std::vector<std::string>{ "--mode", "turbo" }).IsArgValid()); // fails pattern
+}
+
+#ifdef ARGPARSE_HAS_ANY
+// The default_value spec field (C++17+) applies a typed default, dispatched by
+// the spec's type. A string literal is stored in the any as const char*.
+static void test_spec_default_value()
+{
+    auto parser = argparse::ArgumentParser("prog");
+
+    argparse::NamedArgSpec jobs;
+    jobs.longName = "jobs"; jobs.type = argparse::ArgTypeCast::e_int; jobs.required = false;
+    jobs.default_value = 4;
+    parser.AddArgument(argparse::CreateNamedArgument(jobs));
+
+    argparse::NamedArgSpec host;
+    host.longName = "host"; host.required = false;
+    host.default_value = "localhost";   // const char* path
+    parser.AddArgument(argparse::CreateNamedArgument(host));
+
+    auto obj = parser.ParseArgs(std::vector<std::string>{});
+    CHECK(obj.IsArgValid());
+    CHECK(obj.GetAsInt("jobs") == 4);
+    CHECK(obj.GetAsString("host") == "localhost");
+
+    // A supplied value overrides the default.
+    auto obj2 = parser.ParseArgs(std::vector<std::string>{ "--jobs", "8" });
+    CHECK(obj2.GetAsInt("jobs") == 8);
+}
+#endif
+
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
+// C++20: choices + default_value together through designated initializers.
+static void test_spec_extras_designated_cpp20()
+{
+    auto parser = argparse::ArgumentParser("prog");
+    parser.AddArgument(argparse::CreateNamedArgument({
+        .longName = "port", .type = argparse::ArgTypeCast::e_int, .required = false,
+        .choices = { "80", "443", "8080" }, .default_value = 8080 }));
+
+    auto def = parser.ParseArgs(std::vector<std::string>{});
+    CHECK(def.IsArgValid());
+    CHECK(def.GetAsInt("port") == 8080);
+    CHECK(parser.ParseArgs(std::vector<std::string>{ "--port", "443" }).IsArgValid());
+    CHECK(!parser.ParseArgs(std::vector<std::string>{ "--port", "22" }).IsArgValid());
+}
+#endif
+
 #if __cplusplus >= 202002L || _MSVC_LANG >= 202002L
 // C++20: the same spec structs enable Python-like keyword arguments via
 // designated initializers.
@@ -1487,6 +1559,10 @@ int main()
     RUN(test_char_name_setters);
     RUN(test_parser_spec_aggregate);
     RUN(test_parser_spec_remaining_fields);
+    RUN(test_spec_choices_and_pattern);
+#ifdef ARGPARSE_HAS_ANY
+    RUN(test_spec_default_value);
+#endif
     RUN(test_parser_string_ctor_still_works);
     RUN(test_by_name_getters_scalar);
     RUN(test_by_name_getters_vector);
@@ -1496,6 +1572,7 @@ int main()
     RUN(test_add_argument_spec_overload);
     RUN(test_bare_brace_spec_disambiguation);
     RUN(test_parser_spec_designated_cpp20);
+    RUN(test_spec_extras_designated_cpp20);
 #endif
 
     std::cout << "\n" << (g_checks - g_failures) << "/" << g_checks

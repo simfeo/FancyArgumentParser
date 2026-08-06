@@ -45,6 +45,9 @@ SOFTWARE.
 
 #if __cplusplus > 201402L || _MSVC_LANG > 201402L
 #include <any>
+// std::any is available from C++17. The spec structs expose an any-typed
+// default_value only when it is present.
+#define ARGPARSE_HAS_ANY 1
 #endif
 
 // std::filesystem is available from C++17. The path-existence validators
@@ -950,15 +953,98 @@ namespace ARGPARSE_NAMESPACE_NAME
         std::string help = "";
         std::function<bool(const std::string&)> validator = nullptr;
         std::string validator_message = "";
+        /// @brief allowed values, as strings; parsed to @ref type. Empty = no restriction.
+        std::vector<std::string> choices = {};
+        /// @brief regex the value must match (SetPattern). Empty = no pattern.
+        std::string pattern = "";
+#ifdef ARGPARSE_HAS_ANY
+        /// @brief default value (C++17+); its stored type must match @ref type.
+        /// Empty = no default. Leave unset in C++11/14 and chain SetDefault instead.
+        std::any default_value{};
+#endif
     };
+
+    /// @brief Apply the choices/pattern/default_value spec fields to @p arg,
+    /// dispatching by @p type. Shared by the named and positional factories.
+    inline void ApplySpecExtras(Argument& arg, ArgTypeCast type,
+        const std::vector<std::string>& choices, const std::string& pattern
+#ifdef ARGPARSE_HAS_ANY
+        , const std::any& defaultValue
+#endif
+    )
+    {
+        if (!choices.empty())
+        {
+            switch (type)
+            {
+            case ArgTypeCast::e_String: arg.SetChoices(choices); break;
+            case ArgTypeCast::e_int:
+            {
+                std::vector<int> v; v.reserve(choices.size());
+                for (const std::string& s : choices) v.push_back(std::stoi(s));
+                arg.SetChoices(v); break;
+            }
+            case ArgTypeCast::e_longlong:
+            {
+                std::vector<long long> v; v.reserve(choices.size());
+                for (const std::string& s : choices) v.push_back(std::stoll(s));
+                arg.SetChoices(v); break;
+            }
+            case ArgTypeCast::e_double:
+            {
+                std::vector<double> v; v.reserve(choices.size());
+                for (const std::string& s : choices) v.push_back(std::stod(s));
+                arg.SetChoices(v); break;
+            }
+            case ArgTypeCast::e_bool:
+                throw std::runtime_error("choices are not supported for bool arguments");
+            }
+        }
+        if (!pattern.empty())
+        {
+            arg.SetPattern(pattern);
+        }
+#ifdef ARGPARSE_HAS_ANY
+        if (defaultValue.has_value())
+        {
+            try
+            {
+                switch (type)
+                {
+                case ArgTypeCast::e_bool:     arg.SetDefault(std::any_cast<bool>(defaultValue)); break;
+                case ArgTypeCast::e_int:      arg.SetDefault(std::any_cast<int>(defaultValue)); break;
+                case ArgTypeCast::e_longlong: arg.SetDefault(std::any_cast<long long>(defaultValue)); break;
+                case ArgTypeCast::e_double:   arg.SetDefault(std::any_cast<double>(defaultValue)); break;
+                case ArgTypeCast::e_String:
+                    // A string literal is stored as const char*, not std::string.
+                    if (defaultValue.type() == typeid(const char*))
+                        arg.SetDefault(std::string(std::any_cast<const char*>(defaultValue)));
+                    else
+                        arg.SetDefault(std::any_cast<std::string>(defaultValue));
+                    break;
+                }
+            }
+            catch (const std::bad_any_cast&)
+            {
+                throw std::runtime_error("default_value type does not match the argument's type");
+            }
+        }
+#endif
+    }
 
     /// @brief Keyword-style factory for a named argument. See NamedArgSpec.
     /// @param spec aggregate of the argument's properties
     /// @return instance of Argument
     inline Argument CreateNamedArgument(const NamedArgSpec& spec)
     {
-        return Argument::CreateNamedArgument(spec.shortName, spec.longName,
+        Argument arg = Argument::CreateNamedArgument(spec.shortName, spec.longName,
             spec.nargs, spec.type, spec.required, spec.help, spec.validator, spec.validator_message);
+        ApplySpecExtras(arg, spec.type, spec.choices, spec.pattern
+#ifdef ARGPARSE_HAS_ANY
+            , spec.default_value
+#endif
+        );
+        return arg;
     }
 
     /// @brief Aggregate description of a positional argument, for keyword-style
@@ -972,6 +1058,15 @@ namespace ARGPARSE_NAMESPACE_NAME
         std::string help = "";
         std::function<bool(const std::string&)> validator = nullptr;
         std::string validator_message = "";
+        /// @brief allowed values, as strings; parsed to @ref type. Empty = no restriction.
+        std::vector<std::string> choices = {};
+        /// @brief regex the value must match (SetPattern). Empty = no pattern.
+        std::string pattern = "";
+#ifdef ARGPARSE_HAS_ANY
+        /// @brief default value (C++17+); its stored type must match @ref type.
+        /// Empty = no default. Leave unset in C++11/14 and chain SetDefault instead.
+        std::any default_value{};
+#endif
     };
 
     /// @brief Keyword-style factory for a positional argument. See PositionalArgSpec.
@@ -979,8 +1074,14 @@ namespace ARGPARSE_NAMESPACE_NAME
     /// @return instance of Argument
     inline Argument CreatePositionalArgument(const PositionalArgSpec& spec)
     {
-        return Argument::CreatePositionalArgument(spec.name, spec.nargs,
+        Argument arg = Argument::CreatePositionalArgument(spec.name, spec.nargs,
             spec.type, spec.required, spec.help, spec.validator, spec.validator_message);
+        ApplySpecExtras(arg, spec.type, spec.choices, spec.pattern
+#ifdef ARGPARSE_HAS_ANY
+            , spec.default_value
+#endif
+        );
+        return arg;
     }
 
     /// @brief Class which represent actual parsed argument in case of successfully parsing
